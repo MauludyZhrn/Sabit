@@ -41,7 +41,18 @@ namespace sabit::ui {
 
 MainWindow::MainWindow(app::AppController& controller, QWidget* parent)
     : QMainWindow(parent), controller_(controller) {
-    setWindowIcon(themed_icon("record.svg", "#E53935", 32));
+    QString app_icon_path = QCoreApplication::applicationDirPath() + "/assets/icons/app_icon.ico";
+    if (!QFile::exists(app_icon_path)) {
+        app_icon_path = QCoreApplication::applicationDirPath() + "/assets/logo.ico";
+    }
+    if (!QFile::exists(app_icon_path)) {
+        app_icon_path = "assets/logo.ico";
+    }
+    if (QFile::exists(app_icon_path)) {
+        setWindowIcon(QIcon(app_icon_path));
+    } else {
+        setWindowIcon(QApplication::windowIcon());
+    }
     setWindowTitle(tr_str("window_title"));
     setMinimumSize(1150, 720);
 

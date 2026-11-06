@@ -79,6 +79,9 @@ Write-Host "  Copying UI icons & themes..."
 if (Test-Path "$ProjectRoot\assets\icons") {
     Copy-Item "$ProjectRoot\assets\icons\*" "$DistDir\assets\icons\" -Recurse
 }
+if (Test-Path "$ProjectRoot\assets\logo.ico") { Copy-Item "$ProjectRoot\assets\logo.ico" "$DistDir\assets\" }
+if (Test-Path "$ProjectRoot\assets\logo.png") { Copy-Item "$ProjectRoot\assets\logo.png" "$DistDir\assets\" }
+if (Test-Path "$ProjectRoot\assets\splash.png") { Copy-Item "$ProjectRoot\assets\splash.png" "$DistDir\assets\" }
 Copy-Item "$ProjectRoot\src\ui\theme\tokens.json" "$DistDir\src\ui\theme\tokens.json"
 Copy-Item "$ProjectRoot\src\ui\theme\tokens.json" "$DistDir\tokens.json"
 

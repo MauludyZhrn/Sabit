@@ -3,6 +3,8 @@
 #include <QMessageBox>
 #include <QIcon>
 #include <QDir>
+#include <QSplashScreen>
+#include <QPixmap>
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -52,16 +54,44 @@ int main(int argc, char* argv[]) {
             app.setWindowIcon(QIcon(icon_path));
         }
 
-        // 2. Load Qlementine theme tokens & initialize QlementineStyle with Deep Space Fluent (Night Red: Ctrl+Shift+N)
+        // 2. Splash Screen (using Sabit branding from assets)
+        QString splash_path = app_dir + "/assets/splash.png";
+        if (!QFile::exists(splash_path)) {
+            splash_path = "assets/splash.png";
+        }
+        QSplashScreen* splash = nullptr;
+        if (QFile::exists(splash_path)) {
+            QPixmap splash_pix(splash_path);
+            splash = new QSplashScreen(splash_pix, Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
+            splash->show();
+            splash->showMessage("Memuat konfigurasi dan tema...", Qt::AlignBottom | Qt::AlignHCenter, QColor("#94A3B8"));
+            app.processEvents();
+        }
+
+        // 3. Load Qlementine theme tokens & initialize QlementineStyle with Deep Space Fluent (Night Red: Ctrl+Shift+N)
         sabit::ui::ThemeManager::instance().load_tokens();
         sabit::ui::ThemeManager::instance().apply_theme(&app, sabit::ui::ThemeType::Dark);
+        if (splash) {
+            splash->showMessage("Menginisialisasi kontroler kamera & efemeris...", Qt::AlignBottom | Qt::AlignHCenter, QColor("#94A3B8"));
+            app.processEvents();
+        }
 
-        // 3. Initialize application controller & pipeline
+        // 4. Initialize application controller & pipeline
         sabit::app::AppController controller;
+        if (splash) {
+            splash->showMessage("Menyiapkan workstation...", Qt::AlignBottom | Qt::AlignHCenter, QColor("#94A3B8"));
+            app.processEvents();
+        }
 
-        // 4. Create & show main window
+        // 5. Create & show main window
         sabit::ui::MainWindow window(controller);
         window.show();
+
+        if (splash) {
+            splash->finish(&window);
+            delete splash;
+            splash = nullptr;
+        }
 
         return app.exec();
     } catch (const std::exception& e) {

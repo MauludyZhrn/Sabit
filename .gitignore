@@ -51,6 +51,7 @@ settings.json
 Onyx_OS.zip
 .onyx_ref/
 .design_skills/
+sabit-logo/
 
 # Obsolete / Duplicate Pre-Release AI Models
 models/onyx_hilal_v1.onnx
