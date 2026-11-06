@@ -1,0 +1,62 @@
+# ====================================================================
+# SABIT Desktop Application - .gitignore
+# C++20 / Qt6 / CMake Windows Desktop Project
+# ====================================================================
+
+# Build & Distribution Artifacts
+build/
+bin/
+lib/
+out/
+dist/
+test_scratch/
+*.o
+*.obj
+*.exe
+*.dll
+*.a
+*.lib
+*.exp
+*.ilk
+*.pdb
+*.idb
+
+# CMake & IDE Configuration
+CMakeUserPresets.json
+.vscode/
+.idea/
+*.swp
+*.user
+*.user.*
+
+# Dependency & Package Managers
+vcpkg/
+vcpkg_installed/
+
+# Observation Captures & Runtime Logs
+Captures/
+*.log
+aqtinstall.log
+
+# Local Runtime Configuration & Secrets (Use settings.example.json as template)
+settings.json
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Legacy Reference Archives & External Design Skills
+Onyx_OS.zip
+.onyx_ref/
+.design_skills/
+
+# Obsolete / Duplicate Pre-Release AI Models
+models/onyx_hilal_v1.onnx
+models/onyx_hilal_v1.pt
+
+# OS-Specific Temporary Files
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "general": {
+    "language": "en",
+    "theme": "dark",
+    "prevent_sleep": true
+  },
+  "site": {
+    "preset": "Jakarta",
+    "latitude": -6.2088,
+    "longitude": 106.8456,
+    "elevation_m": 10.0,
+    "timezone": "Asia/Jakarta",
+    "refraction": false
+  },
+  "astro": {
+    "criteria": "MABIMS-baru",
+    "calendar": "rukyat_hilal_indonesia"
+  },
+  "capture": {
+    "output_dir": "Captures",
+    "format": "fits",
+    "filename_pattern": "{DATE}_{TIME}_{TARGET}_{SEQ}"
+  },
+  "performance": {
+    "ring_buffer_mb": 512,
+    "stack_ram_mb": 2048,
+    "ai_max_fps": 3
+  },
+  "ai": {
+    "model": "models/hilal_v1.onnx",
+    "confidence": 0.5,
+    "provider": "cpu"
+  }
+}

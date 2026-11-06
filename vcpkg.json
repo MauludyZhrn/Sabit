@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "sabit",
+  "version-string": "1.0.0",
+  "description": "Sabit - High-performance native Hilal live-view, processing, and detection",
+  "dependencies": [
+    {
+      "name": "catch2",
+      "version>=": "3.5.0"
+    },
+    {
+      "name": "cfitsio",
+      "default-features": false
+    },
+    {
+      "name": "nlohmann-json",
+      "version>=": "3.11.3"
+    },
+    {
+      "name": "onnxruntime",
+      "default-features": false
+    },
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": [
+        "jpeg",
+        "png",
+        "tiff"
+      ]
+    },
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "gui",
+        "widgets"
+      ]
+    },
+    {
+      "name": "spdlog",
+      "version>=": "1.13.0"
+    }
+  ]
+}

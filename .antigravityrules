@@ -1,0 +1,14 @@
+# SABIT - CORE ARCHITECTURE & AGENT RULES
+
+1. **Konteks Proyek**: Sabit adalah rebuild native (C++20 + Qt 6 Widgets + CMake + vcpkg) dari prototipe Python lama (`Onyx_OS.zip`).
+2. **Aturan Penggunaan `Onyx_OS.zip`**:
+   - JANGAN menyalin bug arsitektur Onyx OS (seperti pemrosesan di UI thread, konversi paksa 8-bit di awal, atau slider palsu).
+   - GUNAKAN `Onyx_OS.zip` HANYA untuk mengekstrak: (a) file model `onyx_hilal_v1.pt` untuk diekspor ke ONNX, (b) token warna dari `theme.py` (Dark Onyx, Night Vision Red, Light System), dan (c) struktur `settings.json` lama untuk skrip migrasi.
+3. **Batas Memori & Performa Ketat (Target Laptop 8 GB RAM)**:
+   - Jalur frame WAJIB 16-bit (`uint16_t`) atau `float32` sampai tahap render akhir (`LatestSlot`).
+   - Batasi memori ketat sesuai spec: `ring_buffer_mb` (default 512 MB) dan `stack_ram_mb` (default 2048 MB). Gunakan `FramePool` (pre-allocated buffer) di jalur panas, dilarang melakukan `new` / alokasi dinamis per-frame.
+   - Saat compile di mesin lokal dengan CMake/Ninja, batasi paralelisme build (`cmake --build --parallel 2`) agar RAM laptop tidak penuh.
+4. **Pemisahan Thread (5 Thread Wajib)**:
+   - Thread Kamera (`ICamera` + `CMDQ`), Thread Proses (Kalibrasi, Stack, Stretch), Thread AI (ONNX Runtime), Thread Penulis (CFITSIO/TIFF/PNG + CSV), dan Thread UI Qt.
+5. **Kepatuhan Spesifikasi**:
+   - Semua kode harus mematuhi `01-PRD.md`, `02-Technical-Specification.md`, `03-User-Flow-Wireframe.md`, dan diuji dengan Catch2 v3 sesuai `05-Testing-QA-Checklist.md`.
