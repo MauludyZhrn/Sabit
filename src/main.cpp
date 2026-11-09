@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QSplashScreen>
 #include <QPixmap>
+#include <QScreen>
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -62,24 +63,40 @@ int main(int argc, char* argv[]) {
         QSplashScreen* splash = nullptr;
         if (QFile::exists(splash_path)) {
             QPixmap splash_pix(splash_path);
-            splash = new QSplashScreen(splash_pix, Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
-            splash->show();
-            splash->showMessage("Memuat konfigurasi dan tema...", Qt::AlignBottom | Qt::AlignHCenter, QColor("#94A3B8"));
-            app.processEvents();
+            if (!splash_pix.isNull()) {
+                QScreen* screen = QGuiApplication::primaryScreen();
+                int max_h = 520;
+                if (screen) {
+                    QRect geom = screen->availableGeometry();
+                    max_h = std::clamp(static_cast<int>(geom.height() * 0.46), 400, 560);
+                }
+                if (splash_pix.height() > max_h) {
+                    splash_pix = splash_pix.scaledToHeight(max_h, Qt::SmoothTransformation);
+                }
+
+                splash = new QSplashScreen(splash_pix, Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
+                splash->setAttribute(Qt::WA_TranslucentBackground);
+                QFont splash_font("Segoe UI", 9, QFont::Medium);
+                splash_font.setStyleHint(QFont::SansSerif);
+                splash->setFont(splash_font);
+                splash->show();
+                splash->showMessage("Memuat konfigurasi dan tema...\n", Qt::AlignBottom | Qt::AlignHCenter, QColor("#334155"));
+                app.processEvents();
+            }
         }
 
         // 3. Load Qlementine theme tokens & initialize QlementineStyle with Deep Space Fluent (Night Red: Ctrl+Shift+N)
         sabit::ui::ThemeManager::instance().load_tokens();
         sabit::ui::ThemeManager::instance().apply_theme(&app, sabit::ui::ThemeType::Dark);
         if (splash) {
-            splash->showMessage("Menginisialisasi kontroler kamera & efemeris...", Qt::AlignBottom | Qt::AlignHCenter, QColor("#94A3B8"));
+            splash->showMessage("Menginisialisasi kontroler kamera & efemeris...\n", Qt::AlignBottom | Qt::AlignHCenter, QColor("#334155"));
             app.processEvents();
         }
 
         // 4. Initialize application controller & pipeline
         sabit::app::AppController controller;
         if (splash) {
-            splash->showMessage("Menyiapkan workstation...", Qt::AlignBottom | Qt::AlignHCenter, QColor("#94A3B8"));
+            splash->showMessage("Menyiapkan workstation...\n", Qt::AlignBottom | Qt::AlignHCenter, QColor("#334155"));
             app.processEvents();
         }
 
