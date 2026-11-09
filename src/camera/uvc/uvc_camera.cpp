@@ -309,7 +309,7 @@ core::Result<CameraCaps> UvcCamera::open(const CameraId& id) {
     caps_.capabilities.can_crop_dslr_aspect = true;
 
     active_settings_.exposure_us = 33333; // ~30 fps nominal
-    active_settings_.auto_exposure = true;
+    active_settings_.auto_exposure = false;
     active_settings_.gain = 0.0;
     active_settings_.auto_gain = false;
     active_settings_.wb_red = 50;
@@ -603,7 +603,7 @@ void UvcCamera::worker_loop() {
                             exp_gain_mult *= std::pow(10.0f, static_cast<float>(g_db) / 200.0f);
                         }
                     }
-                    if (!active_settings_.auto_exposure.value_or(true) && !hw_exp_supported_) {
+                    if (!active_settings_.auto_exposure.value_or(false) && !hw_exp_supported_) {
                         int64_t exp_us = active_settings_.exposure_us.value_or(33333);
                         float ratio = static_cast<float>(exp_us) / 33333.0f;
                         exp_gain_mult *= std::clamp(std::sqrt(ratio), 0.15f, 6.0f);

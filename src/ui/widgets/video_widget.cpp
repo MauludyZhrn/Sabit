@@ -150,15 +150,31 @@ void VideoWidget::drawForeground(QPainter* painter, const QRectF& /*rect*/) {
     if (!current_image_.isNull()) {
         QRectF img_rect = scene_->sceneRect();
 
-        // 1. Grid Overlay (in scene coordinates)
+        // 1. Grid Overlay (3x3 Framing / Rule of Thirds in scene coordinates)
         if (show_grid_) {
-            QColor grid_col = is_night_red ? QColor(180, 20, 20, 90) : QColor(colors.accent);
-            if (!is_night_red) grid_col.setAlpha(95);
-            QPen grid_pen(grid_col, 1, Qt::DashLine);
-            painter->setPen(grid_pen);
+            QColor grid_col = is_night_red ? QColor(255, 60, 60, 220) : QColor(colors.accent);
+            if (!is_night_red) grid_col.setAlpha(220);
 
-            int cols = 6;
-            int rows = 4;
+            int cols = 3;
+            int rows = 3;
+
+            // Pass 1: Dark contrast shadow (ensures visibility across bright scenes)
+            QPen shadow_pen(QColor(0, 0, 0, 160), 2.5, Qt::SolidLine);
+            shadow_pen.setCosmetic(true);
+            painter->setPen(shadow_pen);
+            for (int c = 1; c < cols; ++c) {
+                double gx = img_rect.left() + (img_rect.width() * c) / cols;
+                painter->drawLine(QPointF(gx, img_rect.top()), QPointF(gx, img_rect.bottom()));
+            }
+            for (int r = 1; r < rows; ++r) {
+                double gy = img_rect.top() + (img_rect.height() * r) / rows;
+                painter->drawLine(QPointF(img_rect.left(), gy), QPointF(img_rect.right(), gy));
+            }
+
+            // Pass 2: Sharp foreground grid lines (cosmetic width 1.2px, dashed)
+            QPen grid_pen(grid_col, 1.2, Qt::DashLine);
+            grid_pen.setCosmetic(true);
+            painter->setPen(grid_pen);
             for (int c = 1; c < cols; ++c) {
                 double gx = img_rect.left() + (img_rect.width() * c) / cols;
                 painter->drawLine(QPointF(gx, img_rect.top()), QPointF(gx, img_rect.bottom()));
@@ -171,16 +187,27 @@ void VideoWidget::drawForeground(QPainter* painter, const QRectF& /*rect*/) {
 
         // 2. Crosshair / Reticle Overlay (in scene coordinates)
         if (show_crosshair_) {
-            QColor ch_color(colors.accent);
-            ch_color.setAlpha(220);
-            QPen ch_pen(ch_color, 1.5);
-            painter->setPen(ch_pen);
+            QColor ch_color = is_night_red ? QColor(255, 60, 60, 230) : QColor(colors.accent);
+            if (!is_night_red) ch_color.setAlpha(230);
 
             QPointF center = img_rect.center();
+
+            // Pass 1: Dark contrast shadow
+            QPen ch_shadow_pen(QColor(0, 0, 0, 160), 2.5, Qt::SolidLine);
+            ch_shadow_pen.setCosmetic(true);
+            painter->setPen(ch_shadow_pen);
+            painter->setBrush(Qt::NoBrush);
             painter->drawLine(QPointF(center.x(), img_rect.top()), QPointF(center.x(), img_rect.bottom()));
             painter->drawLine(QPointF(img_rect.left(), center.y()), QPointF(img_rect.right(), center.y()));
+            painter->drawEllipse(center, 40, 40);
+            painter->drawEllipse(center, 100, 100);
 
-            painter->setBrush(Qt::NoBrush);
+            // Pass 2: Accent foreground crosshair
+            QPen ch_pen(ch_color, 1.2, Qt::SolidLine);
+            ch_pen.setCosmetic(true);
+            painter->setPen(ch_pen);
+            painter->drawLine(QPointF(center.x(), img_rect.top()), QPointF(center.x(), img_rect.bottom()));
+            painter->drawLine(QPointF(img_rect.left(), center.y()), QPointF(img_rect.right(), center.y()));
             painter->drawEllipse(center, 40, 40);
             painter->drawEllipse(center, 100, 100);
         }

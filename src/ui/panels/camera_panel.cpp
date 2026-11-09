@@ -74,7 +74,7 @@ void CameraPanel::create_exposure_ui() {
     });
 
     connect(auto_exp_chk_, &QCheckBox::toggled, this, [this](bool checked) {
-        exp_slider_->setEnabled(!checked);
+        exp_slider_->setEnabled(!checked && current_caps_.capabilities.can_control_exposure);
         if (apply_debounce_timer_ && apply_debounce_timer_->isActive()) {
             apply_debounce_timer_->stop();
         }
@@ -243,8 +243,8 @@ void CameraPanel::reset_to_defaults() {
 
     exp_slider_->setValue(def_exp_ms);
     exp_val_lbl_->setText(QString("%1: %2 ms").arg(tr_str("exposure")).arg(def_exp_ms));
-    auto_exp_chk_->setChecked(is_uvc);
-    exp_slider_->setEnabled(current_caps_.capabilities.can_control_exposure && !is_uvc);
+    auto_exp_chk_->setChecked(false);
+    exp_slider_->setEnabled(current_caps_.capabilities.can_control_exposure);
 
     gain_slider_->setValue(std::clamp(def_gain, gain_slider_->minimum(), gain_slider_->maximum()));
     gain_val_lbl_->setText(QString("%1: %2 dB").arg(tr_str("gain")).arg(gain_slider_->value()));
@@ -337,28 +337,18 @@ void CameraPanel::set_caps(const camera::CameraCaps& caps) {
             .arg(caps.max_height));
     }
 
-    if (caps.driver == "uvc") {
-        exp_slider_->setValue(std::clamp(33, min_exp_ms, max_exp_ms));
-        exp_val_lbl_->setText(QString("%1: %2 ms").arg(tr_str("exposure")).arg(exp_slider_->value()));
-        auto_exp_chk_->setChecked(true);
-        exp_slider_->setEnabled(false);
+    int def_exp = (caps.driver == "uvc") ? 33 : 100;
+    int def_gain = (caps.driver == "uvc") ? 0 : 100;
 
-        gain_slider_->setValue(std::clamp(0, min_g, max_g));
-        gain_val_lbl_->setText(QString("%1: %2 dB").arg(tr_str("gain")).arg(gain_slider_->value()));
-        auto_gain_chk_->setChecked(false);
-        gain_slider_->setEnabled(true);
-    } else {
-        // Simulator, ZWO ASI, QHYCCD, ASCOM DSLR/CCD (default: 100 ms, 100 dB, Manual mode)
-        exp_slider_->setValue(std::clamp(100, min_exp_ms, max_exp_ms));
-        exp_val_lbl_->setText(QString("%1: %2 ms").arg(tr_str("exposure")).arg(exp_slider_->value()));
-        auto_exp_chk_->setChecked(false);
-        exp_slider_->setEnabled(caps.capabilities.can_control_exposure);
+    exp_slider_->setValue(std::clamp(def_exp, min_exp_ms, max_exp_ms));
+    exp_val_lbl_->setText(QString("%1: %2 ms").arg(tr_str("exposure")).arg(exp_slider_->value()));
+    auto_exp_chk_->setChecked(false);
+    exp_slider_->setEnabled(caps.capabilities.can_control_exposure);
 
-        gain_slider_->setValue(std::clamp(100, min_g, max_g));
-        gain_val_lbl_->setText(QString("%1: %2 dB").arg(tr_str("gain")).arg(gain_slider_->value()));
-        auto_gain_chk_->setChecked(false);
-        gain_slider_->setEnabled(caps.capabilities.can_control_gain);
-    }
+    gain_slider_->setValue(std::clamp(def_gain, min_g, max_g));
+    gain_val_lbl_->setText(QString("%1: %2 dB").arg(tr_str("gain")).arg(gain_slider_->value()));
+    auto_gain_chk_->setChecked(false);
+    gain_slider_->setEnabled(caps.capabilities.can_control_gain);
 
     if (caps.is_color) {
         if (w_red_slider_) {
@@ -478,8 +468,8 @@ void CameraPanel::emit_current_settings() {
     s.bit_depth = 16;
     if (w_red_slider_) s.wb_red = w_red_slider_->value();
     if (w_blue_slider_) s.wb_blue = w_blue_slider_->value();
-    if (auto_exp_chk_ && auto_exp_chk_->isVisible()) s.auto_exposure = auto_exp_chk_->isChecked();
-    if (auto_gain_chk_ && auto_gain_chk_->isVisible()) s.auto_gain = auto_gain_chk_->isChecked();
+    s.auto_exposure = (auto_exp_chk_ && auto_exp_chk_->isVisible()) ? auto_exp_chk_->isChecked() : false;
+    s.auto_gain = (auto_gain_chk_ && auto_gain_chk_->isVisible()) ? auto_gain_chk_->isChecked() : false;
     if (dslr_crop_chk_ && dslr_crop_chk_->isVisible()) s.crop_dslr_pillarbox = dslr_crop_chk_->isChecked();
 
     emit full_settings_changed(s);
