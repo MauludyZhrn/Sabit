@@ -636,17 +636,17 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
         }
         caps_.supported_bit_depths = {8, 16};
 
-        caps_.capabilities.can_control_exposure = !is_live_view_adu;
-        caps_.capabilities.can_control_gain = !is_live_view_adu;
-        caps_.capabilities.can_control_wb = false;
+        caps_.capabilities.can_control_exposure = true;
+        caps_.capabilities.can_control_gain = true;
+        caps_.capabilities.can_control_wb = caps_.is_color;
         caps_.capabilities.can_control_roi = true;
         caps_.capabilities.can_control_pixel_format = true;
         caps_.capabilities.has_hardware_exposure = !is_live_view_adu;
         caps_.capabilities.has_hardware_gain = !is_live_view_adu;
-        caps_.capabilities.has_software_fallback = false;
+        caps_.capabilities.has_software_fallback = is_live_view_adu;
         caps_.capabilities.can_auto_exposure = false;
         caps_.capabilities.can_auto_gain = false;
-        caps_.capabilities.can_crop_dslr_aspect = false;
+        caps_.capabilities.can_crop_dslr_aspect = is_live_view_adu;
 
         if (!is_open_) {
             is_open_ = true;
@@ -698,7 +698,11 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
         }
 
         double exp_sec = static_cast<double>(active_settings_.exposure_us.value_or(100000)) / 1e6;
-        exp_sec = std::max(0.001, exp_sec);
+        if (is_live_view_adu) {
+            exp_sec = 0.001; // minimal dummy duration for ASCOM.DSLR live view frame grab
+        } else {
+            exp_sec = std::max(0.001, exp_sec);
+        }
 
         if (FAILED(com_call_start_exposure(disp, exp_sec, true))) {
             auto now_warn = std::chrono::steady_clock::now();
@@ -869,16 +873,31 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
                                 return scale_to_u16(v, sample_max_adu);
                             };
 
+                            float trim_mult = 1.0f;
+                            if (is_live_view_adu) {
+                                int64_t exp_us = active_settings_.exposure_us.value_or(33333);
+                                float ratio = static_cast<float>(exp_us) / 33333.0f;
+                                trim_mult *= std::clamp(std::sqrt(ratio), 0.15f, 6.0f);
+                                double g_db = active_settings_.gain.value_or(0.0);
+                                if (g_db > 0.0) {
+                                    trim_mult *= std::pow(10.0f, static_cast<float>(g_db) / 200.0f);
+                                }
+                            }
+
                             if (ch == 1) {
                                 if (sample_max_adu > 255 && (elem_vt == VT_UI2 || elem_vt == VT_I2 || (elem_vt == VT_EMPTY && psa->cbElements == 2))) {
                                     std::memcpy(dst, raw_ptr, total_samples * sizeof(uint16_t));
                                 } else {
                                     for (size_t i = 0; i < total_samples; ++i) {
-                                        dst[i] = read_sample(i);
+                                        uint16_t s = read_sample(i);
+                                        if (trim_mult != 1.0f) {
+                                            s = static_cast<uint16_t>(std::clamp<int>(static_cast<int>(s * trim_mult), 0, 65535));
+                                        }
+                                        dst[i] = s;
                                     }
                                 }
                             } else {
-                                // 3-channel RGB DSLR frame (apply software WB multipliers if adjusted)
+                                // 3-channel RGB DSLR frame (apply software WB & software exposure trim multipliers if adjusted)
                                 float wb_r = 1.0f + (active_settings_.wb_red.value_or(50) - 50) * 0.015f;
                                 float wb_b = 1.0f + (active_settings_.wb_blue.value_or(50) - 50) * 0.015f;
                                 for (size_t i = 0; i < pixel_count; ++i) {
@@ -891,6 +910,11 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
                                         r_val = read_sample(i * 3 + 0);
                                         g_val = read_sample(i * 3 + 1);
                                         b_val = read_sample(i * 3 + 2);
+                                    }
+                                    if (trim_mult != 1.0f) {
+                                        r_val = static_cast<uint16_t>(std::clamp<int>(static_cast<int>(r_val * trim_mult), 0, 65535));
+                                        g_val = static_cast<uint16_t>(std::clamp<int>(static_cast<int>(g_val * trim_mult), 0, 65535));
+                                        b_val = static_cast<uint16_t>(std::clamp<int>(static_cast<int>(b_val * trim_mult), 0, 65535));
                                     }
                                     dst[i * 3 + 0] = static_cast<uint16_t>(std::clamp<int>(static_cast<int>(r_val * wb_r), 0, 65535));
                                     dst[i * 3 + 1] = g_val;
