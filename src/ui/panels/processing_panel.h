@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QCheckBox>
 #include <QSlider>
+#include <QSpinBox>
 #include <QComboBox>
 #include <QPushButton>
 #include <QLabel>
@@ -20,6 +21,7 @@ public:
     void apply_hilal_siang_preset();
     void apply_hilal_senja_preset();
     void set_offline_status(const QString& status);
+    void sync_stretch_ui(double black_pt, double white_pt, bool auto_stretch, bool invert);
     [[nodiscard]] imaging::StackMethod current_stack_method() const;
     [[nodiscard]] bool is_align_enabled() const;
 
@@ -41,10 +43,41 @@ signals:
     void offline_stack_folder_requested();
     void open_calibration_wizard_requested();
 
+    // SharpCap Reference Image 2 signals (Image Controls & Preprocessing)
+    void timestamp_frames_changed(bool enabled);
+    void dark_file_selected(const QString& path);
+    void dark_subtraction_enabled(bool enabled);
+    void flat_file_selected(const QString& path);
+    void flat_correction_enabled(bool enabled);
+    void banding_suppression_changed(int level);
+    void planet_stabilization_changed(bool enabled);
+    void background_subtraction_changed(int mode);
+    void remove_satellite_trails_changed(bool enabled);
+    void flip_mode_changed(int mode);
+    void mask_over_exposed_changed(bool enabled);
+    void ca_reduction_changed(bool enabled);
+
 private:
+    bool updating_ui_{false};
+
     // Presets
     QPushButton* preset_siang_btn_{nullptr};
     QPushButton* preset_senja_btn_{nullptr};
+
+    // SharpCap Image Controls & Preprocessing (Reference Image 2)
+    QComboBox* timestamp_combo_{nullptr};
+    QPushButton* browse_dark_btn_{nullptr};
+    QComboBox* dark_combo_{nullptr};
+    QPushButton* browse_flat_btn_{nullptr};
+    QComboBox* flat_combo_{nullptr};
+    QSlider* banding_slider_{nullptr};
+    QSpinBox* banding_spin_{nullptr};
+    QComboBox* planet_stab_combo_{nullptr};
+    QComboBox* bg_sub_combo_{nullptr};
+    QComboBox* sat_trails_combo_{nullptr};
+    QComboBox* flip_combo_{nullptr};
+    QComboBox* mask_overexp_combo_{nullptr};
+    QComboBox* ca_red_combo_{nullptr};
 
     // Stretch
     QPushButton* calibration_wizard_btn_{nullptr};

@@ -3,16 +3,19 @@
 #include "src/core/logger.h"
 
 #include <windows.h>
+#include <dshow.h>
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #include <strmif.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <set>
 
 #ifndef MF_LOW_LATENCY
 // {9C27891A-ED7A-40E1-88E8-B22727A024EE}
@@ -60,48 +63,200 @@ void UvcCamera::release_mf_resources() {
     }
 }
 
+namespace {
+
+std::string normalize_device_name(std::string s) {
+    // Normalize full-width ampersand (\xEF\xBC\x86) to standard ASCII '&'
+    const std::string fw_amp = "\xEF\xBC\x86";
+    size_t pos = 0;
+    while ((pos = s.find(fw_amp, pos)) != std::string::npos) {
+        s.replace(pos, fw_amp.length(), "&");
+        pos += 1;
+    }
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
+    return s;
+}
+
+std::string lower_ascii(const std::string& s) {
+    std::string out = s;
+    for (char& c : out) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return out;
+}
+
+std::string wide_to_utf8_clean(const WCHAR* wstr) {
+    if (!wstr || !*wstr) return {};
+    int needed = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+    if (needed <= 1) return {};
+    std::string out(static_cast<size_t>(needed - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, out.data(), needed, NULL, NULL);
+    return normalize_device_name(out);
+}
+
+void enum_registry_dshow_filters(HKEY root_key, REGSAM sam_view, std::vector<CameraId>& list, std::set<std::string>& seen_lower) {
+    const WCHAR* subkey = L"SOFTWARE\\Classes\\CLSID\\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\\Instance";
+    HKEY hInst = NULL;
+    if (RegOpenKeyExW(root_key, subkey, 0, KEY_READ | sam_view, &hInst) != ERROR_SUCCESS) {
+        return;
+    }
+    WCHAR child_name[256];
+    DWORD idx = 0;
+    while (true) {
+        DWORD child_len = 256;
+        if (RegEnumKeyExW(hInst, idx++, child_name, &child_len, NULL, NULL, NULL, NULL) != ERROR_SUCCESS) {
+            break;
+        }
+        HKEY hItem = NULL;
+        if (RegOpenKeyExW(hInst, child_name, 0, KEY_READ | sam_view, &hItem) == ERROR_SUCCESS) {
+            WCHAR fname[256] = {};
+            DWORD cb = sizeof(fname);
+            DWORD type = 0;
+            if (RegQueryValueExW(hItem, L"FriendlyName", NULL, &type, reinterpret_cast<LPBYTE>(fname), &cb) == ERROR_SUCCESS &&
+                (type == REG_SZ || type == REG_EXPAND_SZ)) {
+                std::string clean = wide_to_utf8_clean(fname);
+                std::string key = lower_ascii(clean);
+                if (!clean.empty() && seen_lower.find(key) == seen_lower.end()) {
+                    seen_lower.insert(key);
+                    list.push_back(CameraId{
+                        .driver = "uvc",
+                        .id = "dshow:" + clean,
+                        .name = clean
+                    });
+                }
+            }
+            RegCloseKey(hItem);
+        }
+    }
+    RegCloseKey(hInst);
+}
+
+void enum_registry_pnp_video_classes(std::vector<CameraId>& list, std::set<std::string>& seen_lower) {
+    // KSCATEGORY_VIDEO and KSCATEGORY_VIDEO_CAMERA store all connected & historical video capture hardware
+    const WCHAR* class_paths[] = {
+        L"SYSTEM\\CurrentControlSet\\Control\\DeviceClasses\\{6994AD05-93EF-11D0-A3CC-00A0C9223196}",
+        L"SYSTEM\\CurrentControlSet\\Control\\DeviceClasses\\{e5323777-f976-4f5b-9b55-b94699c46e44}"
+    };
+    for (const WCHAR* base_path : class_paths) {
+        HKEY hClass = NULL;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, base_path, 0, KEY_READ | KEY_WOW64_64KEY, &hClass) != ERROR_SUCCESS) {
+            continue;
+        }
+        WCHAR dev_key_name[512];
+        DWORD idx = 0;
+        while (true) {
+            DWORD dev_len = 512;
+            if (RegEnumKeyExW(hClass, idx++, dev_key_name, &dev_len, NULL, NULL, NULL, NULL) != ERROR_SUCCESS) {
+                break;
+            }
+            std::wstring global_param = std::wstring(dev_key_name) + L"\\#GLOBAL\\Device Parameters";
+            HKEY hParam = NULL;
+            if (RegOpenKeyExW(hClass, global_param.c_str(), 0, KEY_READ | KEY_WOW64_64KEY, &hParam) == ERROR_SUCCESS) {
+                WCHAR fname[256] = {};
+                DWORD cb = sizeof(fname);
+                DWORD type = 0;
+                if (RegQueryValueExW(hParam, L"FriendlyName", NULL, &type, reinterpret_cast<LPBYTE>(fname), &cb) == ERROR_SUCCESS &&
+                    (type == REG_SZ || type == REG_EXPAND_SZ)) {
+                    std::string clean = wide_to_utf8_clean(fname);
+                    std::string key = lower_ascii(clean);
+                    if (!clean.empty() && seen_lower.find(key) == seen_lower.end()) {
+                        seen_lower.insert(key);
+                        list.push_back(CameraId{
+                            .driver = "uvc",
+                            .id = "pnp:" + clean,
+                            .name = clean
+                        });
+                    }
+                }
+                RegCloseKey(hParam);
+            }
+        }
+        RegCloseKey(hClass);
+    }
+}
+
+} // namespace
+
 std::vector<CameraId> UvcCamera::enumerate_cameras() {
     std::vector<CameraId> list;
+    std::set<std::string> seen_lower;
     MFScope scope;
 
+    // 1. Active Media Foundation Video Capture Sources
     IMFAttributes* pAttributes = nullptr;
-    HRESULT hr = MFCreateAttributes(&pAttributes, 1);
-    if (FAILED(hr)) return list;
-
-    hr = pAttributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
-    if (FAILED(hr)) {
-        pAttributes->Release();
-        return list;
-    }
-
-    IMFActivate** ppDevices = nullptr;
-    UINT32 count = 0;
-    hr = MFEnumDeviceSources(pAttributes, &ppDevices, &count);
-    pAttributes->Release();
-
-    if (FAILED(hr) || count == 0) return list;
-
-    for (UINT32 i = 0; i < count; ++i) {
-        WCHAR* name = nullptr;
-        UINT32 len = 0;
-        std::string friendly_name = "UVC Camera " + std::to_string(i);
-
-        if (SUCCEEDED(ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &name, &len)) && name) {
-            char buffer[256];
-            WideCharToMultiByte(CP_UTF8, 0, name, -1, buffer, sizeof(buffer), NULL, NULL);
-            friendly_name = buffer;
-            CoTaskMemFree(name);
+    if (SUCCEEDED(MFCreateAttributes(&pAttributes, 1))) {
+        if (SUCCEEDED(pAttributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID))) {
+            IMFActivate** ppDevices = nullptr;
+            UINT32 count = 0;
+            if (SUCCEEDED(MFEnumDeviceSources(pAttributes, &ppDevices, &count)) && count > 0) {
+                for (UINT32 i = 0; i < count; ++i) {
+                    WCHAR* name = nullptr;
+                    UINT32 len = 0;
+                    std::string friendly_name = "UVC Camera " + std::to_string(i);
+                    if (SUCCEEDED(ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &name, &len)) && name) {
+                        std::string clean = wide_to_utf8_clean(name);
+                        if (!clean.empty()) friendly_name = clean;
+                        CoTaskMemFree(name);
+                    }
+                    std::string key = lower_ascii(friendly_name);
+                    if (seen_lower.find(key) == seen_lower.end()) {
+                        seen_lower.insert(key);
+                        list.push_back(CameraId{
+                            .driver = "uvc",
+                            .id = std::to_string(i),
+                            .name = friendly_name
+                        });
+                    }
+                    ppDevices[i]->Release();
+                }
+                CoTaskMemFree(ppDevices);
+            }
         }
-
-        list.push_back(CameraId{
-            .driver = "uvc",
-            .id = std::to_string(i),
-            .name = friendly_name
-        });
-
-        ppDevices[i]->Release();
+        pAttributes->Release();
     }
-    CoTaskMemFree(ppDevices);
+
+    // 2. DirectShow System Device Enumerator (CLSID_VideoInputDeviceCategory) — matches SharpCap DirectShow enumeration
+    ICreateDevEnum* pDevEnum = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC_SERVER, IID_ICreateDevEnum, reinterpret_cast<void**>(&pDevEnum))) && pDevEnum) {
+        IEnumMoniker* pEnum = nullptr;
+        if (pDevEnum->CreateClassEnumerator(CLSID_VideoInputDeviceCategory, &pEnum, 0) == S_OK && pEnum) {
+            IMoniker* pMoniker = nullptr;
+            ULONG fetched = 0;
+            while (pEnum->Next(1, &pMoniker, &fetched) == S_OK && pMoniker) {
+                IPropertyBag* pPropBag = nullptr;
+                if (SUCCEEDED(pMoniker->BindToStorage(0, 0, IID_IPropertyBag, reinterpret_cast<void**>(&pPropBag))) && pPropBag) {
+                    VARIANT varName;
+                    VariantInit(&varName);
+                    if (SUCCEEDED(pPropBag->Read(L"FriendlyName", &varName, 0)) && varName.vt == VT_BSTR && varName.bstrVal) {
+                        std::string clean = wide_to_utf8_clean(varName.bstrVal);
+                        std::string key = lower_ascii(clean);
+                        if (!clean.empty() && seen_lower.find(key) == seen_lower.end()) {
+                            seen_lower.insert(key);
+                            list.push_back(CameraId{
+                                .driver = "uvc",
+                                .id = "dshow:" + clean,
+                                .name = clean
+                            });
+                        }
+                    }
+                    VariantClear(&varName);
+                    pPropBag->Release();
+                }
+                pMoniker->Release();
+            }
+            pEnum->Release();
+        }
+        pDevEnum->Release();
+    }
+
+    // 3. Registered DirectShow Video Input Filters (64-bit, 32-bit WOW6432Node, and HKCU)
+    enum_registry_dshow_filters(HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY, list, seen_lower);
+    enum_registry_dshow_filters(HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY, list, seen_lower);
+    enum_registry_dshow_filters(HKEY_CURRENT_USER, 0, list, seen_lower);
+
+    // 4. Historical & PnP Video Capture DeviceClasses (detects cameras currently or previously connected to PC)
+    enum_registry_pnp_video_classes(list, seen_lower);
 
     return list;
 }
@@ -112,12 +267,17 @@ core::Result<CameraCaps> UvcCamera::open(const CameraId& id) {
         close();
     }
 
+    int requested_idx = -1;
     try {
-        device_index_ = std::stoi(id.id);
+        size_t pos = 0;
+        int parsed = std::stoi(id.id, &pos);
+        if (pos == id.id.size()) {
+            requested_idx = parsed;
+        }
     } catch (...) {
-        device_index_ = 0;
+        requested_idx = -1;
     }
-    device_name_ = id.name.empty() ? ("UVC Camera " + std::to_string(device_index_)) : id.name;
+    device_name_ = id.name.empty() ? ("UVC Camera " + std::to_string(std::max(0, requested_idx))) : normalize_device_name(id.name);
 
     IMFAttributes* pAttributes = nullptr;
     HRESULT hr = MFCreateAttributes(&pAttributes, 1);
@@ -137,15 +297,43 @@ core::Result<CameraCaps> UvcCamera::open(const CameraId& id) {
     pAttributes->Release();
 
     if (FAILED(hr) || count == 0) {
-        return core::Result<CameraCaps>::err(core::Error(core::ErrorCode::NotFound, "No UVC video devices found"));
+        return core::Result<CameraCaps>::err(core::Error(
+            core::ErrorCode::NotFound,
+            "Perangkat kamera '" + device_name_ + "' sedang tidak aktif atau belum terhubung ke port USB."
+        ));
     }
 
-    if (device_index_ < 0 || static_cast<UINT32>(device_index_) >= count) {
+    // Match by FriendlyName first (most reliable across re-plugging and mixed DirectShow/MF lists)
+    int matched_idx = -1;
+    std::string target_key = lower_ascii(device_name_);
+    for (UINT32 i = 0; i < count; ++i) {
+        WCHAR* name = nullptr;
+        UINT32 len = 0;
+        if (SUCCEEDED(ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &name, &len)) && name) {
+            std::string clean = wide_to_utf8_clean(name);
+            CoTaskMemFree(name);
+            if (!target_key.empty() && lower_ascii(clean) == target_key) {
+                matched_idx = static_cast<int>(i);
+                device_name_ = clean;
+                break;
+            }
+        }
+    }
+
+    if (matched_idx < 0 && requested_idx >= 0 && static_cast<UINT32>(requested_idx) < count) {
+        matched_idx = requested_idx;
+    }
+
+    if (matched_idx < 0) {
         for (UINT32 i = 0; i < count; ++i) ppDevices[i]->Release();
         CoTaskMemFree(ppDevices);
-        return core::Result<CameraCaps>::err(core::Error(core::ErrorCode::NotFound, "Invalid device index: " + std::to_string(device_index_)));
+        return core::Result<CameraCaps>::err(core::Error(
+            core::ErrorCode::NotFound,
+            "Kamera '" + device_name_ + "' terdaftar di sistem tetapi saat ini tidak aktif / belum dicolokkan."
+        ));
     }
 
+    device_index_ = matched_idx;
     IMFMediaSource* pSource = nullptr;
     hr = ppDevices[device_index_]->ActivateObject(IID_PPV_ARGS(&pSource));
 
@@ -153,7 +341,10 @@ core::Result<CameraCaps> UvcCamera::open(const CameraId& id) {
     CoTaskMemFree(ppDevices);
 
     if (FAILED(hr) || !pSource) {
-        return core::Result<CameraCaps>::err(core::Error(core::ErrorCode::HardwareError, "Failed to activate UVC device (Access Denied or In Use)"));
+        return core::Result<CameraCaps>::err(core::Error(
+            core::ErrorCode::HardwareError,
+            "Gagal mengaktifkan '" + device_name_ + "' (Perangkat sedang dipakai aplikasi lain atau tidak merespons)."
+        ));
     }
 
     mf_source_ = pSource;
@@ -597,16 +788,21 @@ void UvcCamera::worker_loop() {
                     float wb_b_mult = 1.0f + (active_settings_.wb_blue.value_or(50) - 50) * 0.016f;
                     float exp_gain_mult = 1.0f;
 
-                    if (!active_settings_.auto_gain.value_or(false) && !hw_gain_supported_) {
+                    if (!active_settings_.auto_gain.value_or(false)) {
                         double g_db = active_settings_.gain.value_or(0.0);
                         if (g_db > 0.1) {
-                            exp_gain_mult *= std::pow(10.0f, static_cast<float>(g_db) / 200.0f);
+                            float div = hw_gain_supported_ ? 300.0f : 200.0f;
+                            exp_gain_mult *= std::pow(10.0f, static_cast<float>(g_db) / div);
                         }
                     }
-                    if (!active_settings_.auto_exposure.value_or(false) && !hw_exp_supported_) {
+                    if (!active_settings_.auto_exposure.value_or(false)) {
                         int64_t exp_us = active_settings_.exposure_us.value_or(33333);
                         float ratio = static_cast<float>(exp_us) / 33333.0f;
-                        exp_gain_mult *= std::clamp(std::sqrt(ratio), 0.15f, 6.0f);
+                        if (!hw_exp_supported_) {
+                            exp_gain_mult *= std::clamp(std::sqrt(ratio), 0.12f, 6.0f);
+                        } else {
+                            exp_gain_mult *= std::clamp(std::pow(ratio, 0.35f), 0.25f, 4.0f);
+                        }
                     }
 
                     const float scale_r = exp_gain_mult * wb_r_mult;

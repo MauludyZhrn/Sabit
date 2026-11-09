@@ -151,10 +151,81 @@ std::vector<camera::CameraId> AppController::enumerate_cameras(bool force_rescan
     auto ascom_list = camera::AscomCamera::enumerate_cameras(true);
     list.insert(list.end(), ascom_list.begin(), ascom_list.end());
 
-    // 5. Simulator & Test Cameras (3 modes)
+#if defined(_WIN32)
+    // 4b. Scan Windows USB Registry History for astronomy & DSLR cameras previously connected to this PC
+    // (ZWO VID_03C3, QHYCCD VID_1618, Canon VID_04A9, Nikon VID_04B0, Sony VID_054C, SVBONY VID_F266, Touptek VID_0547)
+    HKEY h_usb = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Enum\\USB", 0, KEY_READ, &h_usb) == ERROR_SUCCESS) {
+        wchar_t vid_key[256];
+        DWORD idx = 0;
+        while (RegEnumKeyW(h_usb, idx++, vid_key, 256) == ERROR_SUCCESS) {
+            std::wstring wvid(vid_key);
+            for (auto& ch : wvid) ch = static_cast<wchar_t>(towupper(ch));
+            std::string mapped_driver;
+            if (wvid.find(L"VID_03C3") != std::wstring::npos) mapped_driver = "zwo";
+            else if (wvid.find(L"VID_1618") != std::wstring::npos) mapped_driver = "qhy";
+            else if (wvid.find(L"VID_04A9") != std::wstring::npos || wvid.find(L"VID_04B0") != std::wstring::npos) mapped_driver = "ascom_dslr_usb";
+            if (mapped_driver.empty()) continue;
+
+            HKEY h_dev = nullptr;
+            if (RegOpenKeyExW(h_usb, vid_key, 0, KEY_READ, &h_dev) == ERROR_SUCCESS) {
+                wchar_t inst_key[256];
+                DWORD inst_idx = 0;
+                while (RegEnumKeyW(h_dev, inst_idx++, inst_key, 256) == ERROR_SUCCESS) {
+                    HKEY h_inst = nullptr;
+                    if (RegOpenKeyExW(h_dev, inst_key, 0, KEY_READ, &h_inst) == ERROR_SUCCESS) {
+                        wchar_t fname[512] = {0};
+                        DWORD fname_sz = sizeof(fname);
+                        DWORD type = 0;
+                        bool ok = (RegQueryValueExW(h_inst, L"FriendlyName", nullptr, &type, reinterpret_cast<LPBYTE>(fname), &fname_sz) == ERROR_SUCCESS && fname[0] != L'\0');
+                        if (!ok) {
+                            fname_sz = sizeof(fname);
+                            ok = (RegQueryValueExW(h_inst, L"DeviceDesc", nullptr, &type, reinterpret_cast<LPBYTE>(fname), &fname_sz) == ERROR_SUCCESS && fname[0] != L'\0');
+                        }
+                        if (ok) {
+                            int len = WideCharToMultiByte(CP_UTF8, 0, fname, -1, nullptr, 0, nullptr, nullptr);
+                            std::string name_utf8;
+                            if (len > 1) {
+                                name_utf8.resize(len - 1);
+                                WideCharToMultiByte(CP_UTF8, 0, fname, -1, name_utf8.data(), len, nullptr, nullptr);
+                            }
+                            auto semi = name_utf8.find_last_of(';');
+                            if (semi != std::string::npos && semi + 1 < name_utf8.size()) {
+                                name_utf8 = name_utf8.substr(semi + 1);
+                            }
+                            if (!name_utf8.empty() && name_utf8.find("Composite") == std::string::npos) {
+                                std::string display_name = (mapped_driver == "zwo" || mapped_driver == "qhy")
+                                    ? name_utf8
+                                    : (name_utf8 + " (USB / DSLR)");
+                                bool dup = false;
+                                for (const auto& existing : list) {
+                                    if (existing.name == display_name || existing.name == name_utf8) { dup = true; break; }
+                                }
+                                if (!dup) {
+                                    if (mapped_driver == "zwo") {
+                                        list.push_back(camera::CameraId{.driver = "zwo", .id = "auto", .name = display_name});
+                                    } else if (mapped_driver == "qhy") {
+                                        list.push_back(camera::CameraId{.driver = "qhy", .id = "auto", .name = display_name});
+                                    } else {
+                                        list.push_back(camera::CameraId{.driver = "ascom", .id = "ASCOM.DSLR.Camera", .name = display_name});
+                                    }
+                                }
+                            }
+                        }
+                        RegCloseKey(h_inst);
+                    }
+                }
+                RegCloseKey(h_dev);
+            }
+        }
+        RegCloseKey(h_usb);
+    }
+#endif
+
+    // 5. Simulator & Test Cameras (SharpCap-compatible Test Cameras + Hilal Simulator)
+    list.push_back(camera::CameraId{.driver = "sim", .id = "starfield", .name = "Test Camera 1 (Deep Sky)"});
+    list.push_back(camera::CameraId{.driver = "sim", .id = "gradient", .name = "Test Camera 2 (High Speed)"});
     list.push_back(camera::CameraId{.driver = "sim", .id = "hilal", .name = "Simulator: Hilal Dusk"});
-    list.push_back(camera::CameraId{.driver = "sim", .id = "starfield", .name = "Simulator: Deep Sky / Star Field"});
-    list.push_back(camera::CameraId{.driver = "sim", .id = "gradient", .name = "Simulator: Gradient 16-bit"});
 
     cached_cameras_ = list;
     return cached_cameras_;
@@ -162,6 +233,7 @@ std::vector<camera::CameraId> AppController::enumerate_cameras(bool force_rescan
 
 core::Result<camera::CameraCaps> AppController::connect_camera(const camera::CameraId& id) {
     disconnect_camera();
+    last_connected_camera_ = id;
 
     if (id.driver == "sim") {
         camera::SimulatorMode mode = camera::SimulatorMode::Hilal;
@@ -248,6 +320,10 @@ void AppController::disconnect_camera() {
     preview_slot_.clear();
 }
 
+std::optional<camera::CameraId> AppController::last_connected_camera() const {
+    return last_connected_camera_;
+}
+
 core::Result<camera::CameraSettings> AppController::apply_camera_settings(const camera::CameraSettings& settings) {
     if (!camera_) {
         return core::Result<camera::CameraSettings>::err(core::Error(core::ErrorCode::InvalidState, "No camera connected"));
@@ -274,6 +350,27 @@ void AppController::set_master_dark(imaging::MasterDark dark) {
 void AppController::set_master_flat(imaging::MasterFlat flat) {
     calibration_.set_master_flat(std::move(flat));
     session_.log_event("Master Flat loaded.");
+}
+
+bool AppController::load_dark_file(const std::string& path) {
+    auto res = imaging::io::FitsWriter::read_fits_16bit(path);
+    if (!res.is_ok()) return false;
+    auto dark_res = imaging::CalibrationProcessor::create_master_dark({res.value()});
+    if (!dark_res.is_ok()) return false;
+    set_master_dark(std::move(dark_res.value()));
+    enable_dark_subtraction(true);
+    return true;
+}
+
+bool AppController::load_flat_file(const std::string& path) {
+    auto res = imaging::io::FitsWriter::read_fits_16bit(path);
+    if (!res.is_ok()) return false;
+    const imaging::MasterDark* dark_ptr = calibration_.master_dark().is_valid() ? &calibration_.master_dark() : nullptr;
+    auto flat_res = imaging::CalibrationProcessor::create_master_flat({res.value()}, dark_ptr);
+    if (!flat_res.is_ok()) return false;
+    set_master_flat(std::move(flat_res.value()));
+    enable_flat_correction(true);
+    return true;
 }
 
 void AppController::enable_dark_subtraction(bool enable) {
@@ -335,6 +432,13 @@ void AppController::reset_stacker() {
     }
 }
 
+void AppController::set_stretch_enabled(bool enable) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.stretch_enabled = enable;
+    stretcher_.set_config(cfg);
+}
+
 void AppController::set_auto_stretch(bool enable) {
     std::lock_guard<std::mutex> lock(stretcher_mutex_);
     auto cfg = stretcher_.config();
@@ -349,6 +453,34 @@ void AppController::set_manual_stretch(double black_point, double white_point) {
     cfg.black_point = static_cast<float>(black_point);
     cfg.white_point = static_cast<float>(white_point);
     stretcher_.set_config(cfg);
+}
+
+void AppController::set_manual_stretch_full(double black_point, double white_point, double gamma) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.auto_stretch = false;
+    cfg.black_point = static_cast<float>(black_point);
+    cfg.white_point = static_cast<float>(white_point);
+    cfg.gamma = static_cast<float>(gamma);
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_gamma(double gamma) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.gamma = static_cast<float>(gamma);
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_exp_gain_shift(double shift_ev) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.exp_gain_shift = static_cast<float>(shift_ev);
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_fps_limit(double max_fps) {
+    max_fps_limit_.store(max_fps);
 }
 
 void AppController::enable_clahe(bool enable) {
@@ -369,6 +501,62 @@ void AppController::enable_invert(bool enable) {
     std::lock_guard<std::mutex> lock(stretcher_mutex_);
     auto cfg = stretcher_.config();
     cfg.invert_enabled = enable;
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_timestamp_frames(bool enable) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.timestamp_frames = enable;
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_banding_suppression(int level) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.banding_suppression = level;
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_planet_stabilization(bool enable) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.planet_stabilization = enable;
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_background_subtraction(int mode) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.background_subtraction = mode;
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_remove_satellite_trails(bool enable) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.remove_satellite_trails = enable;
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_flip_mode(int mode) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.flip_mode = mode;
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_mask_over_exposed(bool enable) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.mask_over_exposed = enable;
+    stretcher_.set_config(cfg);
+}
+
+void AppController::set_ca_reduction(bool enable) {
+    std::lock_guard<std::mutex> lock(stretcher_mutex_);
+    auto cfg = stretcher_.config();
+    cfg.ca_reduction = enable;
     stretcher_.set_config(cfg);
 }
 
@@ -452,6 +640,21 @@ bool AppController::is_recording() const {
 
 void AppController::on_camera_frame(const core::Frame& frame) {
     if (!camera_connected_.load() || !frame.is_valid()) return;
+
+    const double fps_lim = max_fps_limit_.load();
+    if (fps_lim > 0.1) {
+        auto now = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> lock(fps_mutex_);
+        if (last_frame_accept_time_.time_since_epoch().count() != 0) {
+            double min_interval_ms = 1000.0 / fps_lim;
+            double elapsed_ms = std::chrono::duration<double, std::milli>(now - last_frame_accept_time_).count();
+            if (elapsed_ms < min_interval_ms * 0.92) {
+                return;
+            }
+        }
+        last_frame_accept_time_ = now;
+    }
+
     ++frames_captured_;
 
     // Zero-latency decoupled recording: push directly to ring buffer without waiting for preview/AI/stacking
@@ -540,6 +743,11 @@ void AppController::processing_worker() {
         {
             std::lock_guard<std::mutex> lock(stretcher_mutex_);
             auto stretched8 = stretcher_.convert_to_preview_8bit(proc_frame, &hist);
+            preview.stretch_black_pt = stretcher_.effective_black_norm();
+            preview.stretch_white_pt = stretcher_.effective_white_norm();
+            preview.stretch_gamma = stretcher_.effective_gamma();
+            preview.stretch_enabled = stretcher_.config().stretch_enabled;
+            preview.timestamp_frames = stretcher_.config().timestamp_frames;
 
             if (proc_frame.channels >= 3) {
                 // Already 3-channel RGB — move directly without 3x grayscale replication!

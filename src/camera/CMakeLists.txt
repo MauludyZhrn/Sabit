@@ -25,6 +25,7 @@ target_link_libraries(sabit_camera PUBLIC
     ole32
     oleaut32
     uuid
+    strmiids
     advapi32
 )
 

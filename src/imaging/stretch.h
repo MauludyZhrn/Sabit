@@ -24,17 +24,19 @@ struct Histogram {
 };
 
 struct StretchConfig {
-    bool auto_stretch{true};
+    bool stretch_enabled{true};
+    bool auto_stretch{false};
     float black_point{0.0f};  // 0..65535
     float white_point{65535.0f};
-    float gamma{1.0f}; // gamma exponent (< 1.0 brightens shadows)
+    float gamma{1.0f};        // gamma exponent (< 1.0 brightens shadows)
+    float exp_gain_shift{0.0f}; // EV shift (-5.0 to +5.0, multiplier = 2^shift)
 
     // Auto stretch parameters
-    float auto_black_percentile{0.001f}; // 0.1% lowest
-    float auto_white_percentile{0.999f}; // 99.9% highest
-    float ema_alpha{0.15f}; // Temporal smoothing parameter (TC-022 anti-flicker)
+    float auto_black_percentile{0.002f}; // 0.2% lowest
+    float auto_white_percentile{0.998f}; // 99.8% highest
+    float ema_alpha{0.18f}; // Temporal smoothing parameter (TC-022 anti-flicker)
 
-    // Optional visual enhancements (preview only)
+    // Optional visual enhancements & SharpCap-style preprocessing (preview)
     bool clahe_enabled{false};
     float clahe_clip_limit{2.5f};
     int clahe_tiles_x{8};
@@ -44,6 +46,16 @@ struct StretchConfig {
     float sharpen_strength{0.5f};
 
     bool invert_enabled{false};
+
+    // SharpCap Reference Image 2 Preprocessing & Image Controls
+    bool timestamp_frames{false};
+    int banding_suppression{0};      // 0..100
+    bool planet_stabilization{false};
+    int background_subtraction{0};   // 0=Off, 1=Simple, 2=Blended Offset, 3=Linear Gradient
+    bool remove_satellite_trails{false};
+    int flip_mode{0};                // 0=None, 1=Horizontal, 2=Vertical, 3=Both
+    bool mask_over_exposed{false};
+    bool ca_reduction{false};
 };
 
 class ImageStretcher {
@@ -55,6 +67,20 @@ public:
     [[nodiscard]] StretchConfig config() const noexcept { return config_; }
 
     void reset_temporal_smoothing();
+
+    [[nodiscard]] float effective_black_norm() const noexcept {
+        if (!config_.stretch_enabled) return 0.0f;
+        float bp = config_.auto_stretch ? smooth_black_ : config_.black_point;
+        return bp / 65535.0f;
+    }
+    [[nodiscard]] float effective_white_norm() const noexcept {
+        if (!config_.stretch_enabled) return 1.0f;
+        float wp = config_.auto_stretch ? smooth_white_ : config_.white_point;
+        return wp / 65535.0f;
+    }
+    [[nodiscard]] float effective_gamma() const noexcept {
+        return config_.stretch_enabled ? config_.gamma : 1.0f;
+    }
 
     /**
      * Compute 65k and 256-bin histograms from 16-bit frame.
@@ -77,6 +103,8 @@ private:
     float smooth_black_{0.0f};
     float smooth_white_{65535.0f};
     bool smooth_initialized_{false};
+    float ref_centroid_x_{-1.0f};
+    float ref_centroid_y_{-1.0f};
 };
 
 } // namespace sabit::imaging

@@ -202,6 +202,40 @@ void test_ui_offscreen_lifecycle(int argc, char** argv) {
     TEST_CHECK(!mlabel.text().isEmpty(), "MarqueeLabel text check");
     mlabel.resize(100, 20);
     std::cout << "  PASS: FluentBadge and MarqueeLabel running text verified." << std::endl;
+
+    // Test 6: SharpCap-style Camera Enumeration, Preprocessing, and Interactive Stretch
+    std::cout << "[Test 6] Camera Enumeration & SharpCap Controls..." << std::endl;
+    auto cams = controller.enumerate_cameras(true);
+    TEST_CHECK(cams.size() >= 3, "Should enumerate at least Test Cameras");
+    for (const auto& c : cams) {
+        std::cout << "    Found Camera: [" << c.driver << "] " << c.name << " (" << c.id << ")" << std::endl;
+    }
+
+    // Connect Test Camera 2 (Gradient) and test Gamma, EV Shift, Flip, Background Subtraction
+    camera::CameraId grad_id{.driver = "sim", .id = "gradient", .name = "Test Camera 2 (High Speed)"};
+    auto conn_res = controller.connect_camera(grad_id);
+    TEST_CHECK(conn_res.is_ok(), "Failed to connect Test Camera 2");
+    TEST_CHECK(controller.last_connected_camera().has_value(), "last_connected_camera should be recorded");
+
+    controller.set_gamma(1.80);
+    controller.set_exp_gain_shift(1.50);
+    controller.set_banding_suppression(35);
+    controller.set_background_subtraction(2);
+    controller.set_remove_satellite_trails(true);
+    controller.set_flip_mode(3);
+    controller.set_mask_over_exposed(true);
+    controller.set_ca_reduction(true);
+    controller.set_timestamp_frames(true);
+    controller.set_fps_limit(30.0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    auto prev = controller.get_latest_preview();
+    TEST_CHECK(prev.has_value(), "Preview should be produced with preprocessing enabled");
+    TEST_CHECK(std::abs(prev->stretch_gamma - 1.80f) < 0.05f, "Preview gamma should reflect 1.80");
+    TEST_CHECK(prev->timestamp_frames == true, "Preview timestamp_frames flag should be true");
+
+    controller.disconnect_camera();
+    std::cout << "  PASS: SharpCap controls & enumeration verified." << std::endl;
 }
 
 int main(int argc, char** argv) {

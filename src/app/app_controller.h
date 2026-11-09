@@ -49,6 +49,11 @@ struct PreviewData {
     double sensor_temp_c{0.0};
     double actual_fps{0.0};
     int64_t timestamp_utc_ms{0};
+    float stretch_black_pt{0.0f};
+    float stretch_white_pt{1.0f};
+    float stretch_gamma{1.0f};
+    bool stretch_enabled{true};
+    bool timestamp_frames{false};
 };
 
 struct SystemStatus {
@@ -84,6 +89,7 @@ public:
     std::vector<camera::CameraId> enumerate_cameras(bool force_rescan = false);
     core::Result<camera::CameraCaps> connect_camera(const camera::CameraId& id);
     void disconnect_camera();
+    [[nodiscard]] std::optional<camera::CameraId> last_connected_camera() const;
     core::Result<camera::CameraSettings> apply_camera_settings(const camera::CameraSettings& settings);
     [[nodiscard]] camera::CameraCaps camera_caps() const;
     [[nodiscard]] camera::CameraStatus camera_status() const;
@@ -91,6 +97,8 @@ public:
     // Pemrosesan & Kalibrasi
     void set_master_dark(imaging::MasterDark dark);
     void set_master_flat(imaging::MasterFlat flat);
+    bool load_dark_file(const std::string& path);
+    bool load_flat_file(const std::string& path);
     void enable_dark_subtraction(bool enable);
     void enable_flat_correction(bool enable);
     [[nodiscard]] bool has_master_dark() const;
@@ -108,11 +116,26 @@ public:
     void reset_stacker();
 
     // Stretch & Visual Peningkatan
+    void set_stretch_enabled(bool enable);
     void set_auto_stretch(bool enable);
     void set_manual_stretch(double black_point, double white_point);
+    void set_manual_stretch_full(double black_point, double white_point, double gamma);
+    void set_gamma(double gamma);
+    void set_exp_gain_shift(double shift_ev);
+    void set_fps_limit(double max_fps);
     void enable_clahe(bool enable);
     void enable_unsharp_mask(bool enable);
     void enable_invert(bool enable);
+
+    // Image Controls & Preprocessing (SharpCap-style)
+    void set_timestamp_frames(bool enable);
+    void set_banding_suppression(int level);
+    void set_planet_stabilization(bool enable);
+    void set_background_subtraction(int mode);
+    void set_remove_satellite_trails(bool enable);
+    void set_flip_mode(int mode);
+    void set_mask_over_exposed(bool enable);
+    void set_ca_reduction(bool enable);
 
     // AI Deteksi
     core::Result<void> init_ai(const std::string& model_path = "models/hilal_v1.onnx", const std::string& manifest_path = "models/manifest.json");
@@ -158,8 +181,11 @@ private:
     std::unique_ptr<camera::ICamera> camera_;
     camera::CameraCaps camera_caps_{};
     std::atomic<bool> camera_connected_{false};
+    std::optional<camera::CameraId> last_connected_camera_;
     std::vector<camera::CameraId> cached_cameras_;
     mutable std::mutex enum_mutex_;
+    std::atomic<double> max_fps_limit_{0.0};
+    std::chrono::steady_clock::time_point last_frame_accept_time_{};
 
     // Threading & Pipeline Slots
     core::LatestSlot<PreviewData> preview_slot_;

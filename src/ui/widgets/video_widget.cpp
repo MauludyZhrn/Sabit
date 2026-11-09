@@ -5,6 +5,7 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QResizeEvent>
+#include <QDateTime>
 #include <cmath>
 #include <algorithm>
 
@@ -68,6 +69,11 @@ void VideoWidget::set_show_grid(bool show) {
 
 void VideoWidget::set_show_sensor_ar(bool show) {
     show_sensor_ar_ = show;
+    viewport()->update();
+}
+
+void VideoWidget::set_show_timestamp(bool show) {
+    show_timestamp_ = show;
     viewport()->update();
 }
 
@@ -317,6 +323,23 @@ void VideoWidget::drawForeground(QPainter* painter, const QRectF& /*rect*/) {
 
         painter->setPen(hud_fg);
         painter->drawText(hud_rect, Qt::AlignCenter, hud_text);
+    }
+
+    if (!current_image_.isNull() && show_timestamp_) {
+        const QString ts_str = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss.zzz 'UTC'");
+        QFont ts_font("Consolas", 10, QFont::Bold);
+        ts_font.setStyleHint(QFont::Monospace);
+        painter->setFont(ts_font);
+        QFontMetrics fm_ts(ts_font);
+        QRect ts_rect = fm_ts.boundingRect(ts_str);
+        ts_rect.adjust(-8, -4, 8, 4);
+        ts_rect.moveTo(12, vp_rect.height() - ts_rect.height() - 12);
+
+        painter->setBrush(QColor(0, 0, 0, 210));
+        painter->setPen(QPen(QColor("#FACC15"), 1));
+        painter->drawRoundedRect(ts_rect, 3, 3);
+        painter->setPen(QColor("#FACC15"));
+        painter->drawText(ts_rect, Qt::AlignCenter, ts_str);
     }
 
     // 5. Toast Notification

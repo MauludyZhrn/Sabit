@@ -332,7 +332,7 @@ void MainWindow::rebuild_cameras_menu() {
     auto sys_st = controller_.get_system_status();
     bool is_id = (Translator::instance().language() == Language::Indonesian);
 
-    // Top Actions (Icon-free, clean shortcuts)
+    // Top Actions (SharpCap Reference Image 4: Rescan for Cameras, Close Camera, Reconnect Camera)
     act_rescan_cameras_ = m_camera_->addAction(tr_str("rescan_cameras"), this, [this, is_id]() {
         QApplication::setOverrideCursor(Qt::WaitCursor);
         auto refreshed_cams = controller_.enumerate_cameras(true);
@@ -342,14 +342,22 @@ void MainWindow::rebuild_cameras_menu() {
     });
     act_rescan_cameras_->setShortcut(QKeySequence("Ctrl+R"));
 
-    act_connect_cam_ = m_camera_->addAction(tr_str("advanced_camera_dialog"), this, &MainWindow::on_connect_camera_clicked);
-    act_connect_cam_->setShortcut(QKeySequence("Ctrl+K"));
-
-    auto* disc_act = m_camera_->addAction(tr_str("disconnect_camera"), this, [this, is_id]() {
+    auto* disc_act = m_camera_->addAction(is_id ? "Tutup Kamera (Close Camera)" : "Close Camera", this, [this, is_id]() {
         disconnect_camera_async();
         video_widget_->show_toast(is_id ? "Kamera Terputus" : "Camera Disconnected");
     });
     disc_act->setEnabled(current_status.is_connected);
+
+    auto* reconn_act = m_camera_->addAction(is_id ? "Hubungkan Ulang Kamera (Reconnect Camera)" : "Reconnect Camera", this, [this]() {
+        auto last_cam = controller_.last_connected_camera();
+        if (last_cam.has_value()) {
+            connect_camera_async(*last_cam);
+        }
+    });
+    reconn_act->setEnabled(controller_.last_connected_camera().has_value());
+
+    act_connect_cam_ = m_camera_->addAction(tr_str("advanced_camera_dialog"), this, &MainWindow::on_connect_camera_clicked);
+    act_connect_cam_->setShortcut(QKeySequence("Ctrl+K"));
 
     m_camera_->addSeparator();
 
@@ -377,8 +385,8 @@ void MainWindow::rebuild_cameras_menu() {
         });
     };
 
-    // 1. DirectShow / UVC Cameras
-    add_section_header(is_id ? "Kamera DirectShow / UVC" : "DirectShow / UVC Cameras");
+    // 1. DirectShow Cameras (Active + Registered DirectShow Filters + PnP History)
+    add_section_header("DirectShow Cameras");
     bool has_uvc = false;
     for (const auto& c : cams) {
         if (c.driver == "uvc") {
@@ -393,18 +401,8 @@ void MainWindow::rebuild_cameras_menu() {
 
     m_camera_->addSeparator();
 
-    // 2. Native SDK Cameras (ZWO ASI / QHYCCD)
-    add_section_header(is_id ? "Kamera SDK Native (ZWO ASI / QHYCCD)" : "Native SDK Cameras (ZWO ASI / QHYCCD)");
-    for (const auto& c : cams) {
-        if (c.driver == "zwo" || c.driver == "qhy") {
-            add_cam_action(c, QString("  %1").arg(QString::fromStdString(c.name)));
-        }
-    }
-
-    m_camera_->addSeparator();
-
-    // 3. ASCOM Cameras
-    add_section_header(is_id ? "Driver Kamera ASCOM" : "ASCOM Camera Drivers");
+    // 2. ASCOM Cameras (Installed ASCOM Drivers + Historical USB DSLR)
+    add_section_header("ASCOM Cameras");
     for (const auto& c : cams) {
         if (c.driver == "ascom") {
             QString clean_name = QString::fromStdString(c.name);
@@ -417,14 +415,21 @@ void MainWindow::rebuild_cameras_menu() {
 
     m_camera_->addSeparator();
 
-    // 4. Simulated & Test Cameras
-    add_section_header(is_id ? "Kamera Simulator / Pengujian" : "Simulated / Test Cameras");
+    // 3. Native SDK & USB Astronomy Cameras (ZWO ASI / QHYCCD)
+    add_section_header("ZWO ASI / QHYCCD Cameras");
+    for (const auto& c : cams) {
+        if (c.driver == "zwo" || c.driver == "qhy") {
+            add_cam_action(c, QString("  %1").arg(QString::fromStdString(c.name)));
+        }
+    }
+
+    m_camera_->addSeparator();
+
+    // 4. Test Cameras
+    add_section_header("Test Cameras");
     for (const auto& c : cams) {
         if (c.driver == "sim") {
             QString clean_name = QString::fromStdString(c.name);
-            if (clean_name.startsWith("Simulator: ")) {
-                clean_name = clean_name.mid(11);
-            }
             add_cam_action(c, QString("  %1").arg(clean_name));
         }
     }
@@ -805,11 +810,92 @@ void MainWindow::setup_central_layout() {
         controller_.apply_camera_settings(s);
     });
 
+    connect(camera_panel_, &CameraPanel::gamma_changed, this, [this](double g) {
+        controller_.set_gamma(g);
+    });
+    connect(camera_panel_, &CameraPanel::exp_gain_shift_changed, this, [this](double shift) {
+        controller_.set_exp_gain_shift(shift);
+    });
+    connect(camera_panel_, &CameraPanel::fps_limit_changed, this, [this](double max_fps) {
+        controller_.set_fps_limit(max_fps);
+    });
+
+    // Histogram interactive stretch & right-toolbar buttons (SharpCap Reference Image 3)
+    connect(histogram_widget_, &HistogramWidget::stretch_changed, this, [this](double bp, double wp, double gamma) {
+        controller_.set_manual_stretch_full(bp, wp, gamma);
+        if (camera_panel_) camera_panel_->set_gamma_display(gamma);
+        if (processing_panel_) processing_panel_->sync_stretch_ui(bp, wp, false, false);
+    });
+    connect(histogram_widget_, &HistogramWidget::stretch_enabled_toggled, this, [this](bool en) {
+        controller_.set_stretch_enabled(en);
+    });
+    connect(histogram_widget_, &HistogramWidget::auto_stretch_toggled, this, [this](bool en) {
+        controller_.set_auto_stretch(en);
+        if (processing_panel_) processing_panel_->sync_stretch_ui(0.0, 1.0, en, false);
+    });
+    connect(histogram_widget_, &HistogramWidget::invert_toggled, this, [this](bool en) {
+        controller_.enable_invert(en);
+    });
+    connect(histogram_widget_, &HistogramWidget::reset_stretch_requested, this, [this]() {
+        controller_.set_stretch_enabled(true);
+        controller_.set_auto_stretch(false);
+        controller_.set_manual_stretch_full(0.0, 1.0, 1.0);
+        if (camera_panel_) camera_panel_->set_gamma_display(1.0);
+        if (processing_panel_) processing_panel_->sync_stretch_ui(0.0, 1.0, false, false);
+    });
+
+    // ProcessingPanel SharpCap Reference Image 2 signals
+    connect(processing_panel_, &ProcessingPanel::timestamp_frames_changed, this, [this](bool en) {
+        controller_.set_timestamp_frames(en);
+        if (video_widget_) video_widget_->set_show_timestamp(en);
+    });
+    connect(processing_panel_, &ProcessingPanel::dark_file_selected, this, [this](const QString& path) {
+        bool ok = controller_.load_dark_file(path.toStdString());
+        if (video_widget_) {
+            video_widget_->show_toast(ok ? "Master Dark Loaded" : "Failed to load Master Dark (use 16-bit FITS)");
+        }
+    });
+    connect(processing_panel_, &ProcessingPanel::dark_subtraction_enabled, this, [this](bool en) {
+        controller_.enable_dark_subtraction(en);
+    });
+    connect(processing_panel_, &ProcessingPanel::flat_file_selected, this, [this](const QString& path) {
+        bool ok = controller_.load_flat_file(path.toStdString());
+        if (video_widget_) {
+            video_widget_->show_toast(ok ? "Master Flat Loaded" : "Failed to load Master Flat (use 16-bit FITS)");
+        }
+    });
+    connect(processing_panel_, &ProcessingPanel::flat_correction_enabled, this, [this](bool en) {
+        controller_.enable_flat_correction(en);
+    });
+    connect(processing_panel_, &ProcessingPanel::banding_suppression_changed, this, [this](int level) {
+        controller_.set_banding_suppression(level);
+    });
+    connect(processing_panel_, &ProcessingPanel::planet_stabilization_changed, this, [this](bool en) {
+        controller_.set_planet_stabilization(en);
+    });
+    connect(processing_panel_, &ProcessingPanel::background_subtraction_changed, this, [this](int mode) {
+        controller_.set_background_subtraction(mode);
+    });
+    connect(processing_panel_, &ProcessingPanel::remove_satellite_trails_changed, this, [this](bool en) {
+        controller_.set_remove_satellite_trails(en);
+    });
+    connect(processing_panel_, &ProcessingPanel::flip_mode_changed, this, [this](int mode) {
+        controller_.set_flip_mode(mode);
+    });
+    connect(processing_panel_, &ProcessingPanel::mask_over_exposed_changed, this, [this](bool en) {
+        controller_.set_mask_over_exposed(en);
+    });
+    connect(processing_panel_, &ProcessingPanel::ca_reduction_changed, this, [this](bool en) {
+        controller_.set_ca_reduction(en);
+    });
+
     connect(processing_panel_, &ProcessingPanel::auto_stretch_toggled, this, [this](bool en) {
         controller_.set_auto_stretch(en);
+        if (histogram_widget_) histogram_widget_->set_auto_stretch_active(en);
     });
     connect(processing_panel_, &ProcessingPanel::manual_stretch_changed, this, [this](double bp, double wp) {
         controller_.set_manual_stretch(bp, wp);
+        if (histogram_widget_) histogram_widget_->set_stretch_points(bp, wp);
     });
     connect(processing_panel_, &ProcessingPanel::clahe_toggled, this, [this](bool en) {
         controller_.enable_clahe(en);
@@ -819,6 +905,7 @@ void MainWindow::setup_central_layout() {
     });
     connect(processing_panel_, &ProcessingPanel::invert_toggled, this, [this](bool en) {
         controller_.enable_invert(en);
+        if (histogram_widget_) histogram_widget_->set_invert_active(en);
     });
     connect(processing_panel_, &ProcessingPanel::stacking_toggled, this, [this](bool en) {
         controller_.enable_stacking(en);
@@ -1628,7 +1715,9 @@ void MainWindow::on_timer_tick() {
     if (preview_opt.has_value()) {
         const auto& p = *preview_opt;
         video_widget_->update_frame(p.rgb_pixels, p.width, p.height);
+        video_widget_->set_show_timestamp(p.timestamp_frames);
         histogram_widget_->update_histogram_rgb(p.histogram_r, p.histogram_g, p.histogram_b, p.histogram_256);
+        histogram_widget_->set_stretch_state(p.stretch_black_pt, p.stretch_white_pt, p.stretch_gamma, p.stretch_enabled);
 
         auto cam_st = controller_.camera_status();
         camera_panel_->update_readback(cam_st, p.exposure_us, p.gain, 1);

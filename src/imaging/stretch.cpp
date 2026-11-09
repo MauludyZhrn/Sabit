@@ -1,6 +1,7 @@
 #include "src/imaging/stretch.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <numeric>
 
 namespace sabit::imaging {
@@ -13,6 +14,8 @@ void ImageStretcher::set_config(const StretchConfig& config) {
 
 void ImageStretcher::reset_temporal_smoothing() {
     smooth_initialized_ = false;
+    ref_centroid_x_ = -1.0f;
+    ref_centroid_y_ = -1.0f;
 }
 
 Histogram ImageStretcher::compute_histogram(const core::Frame& frame) {
@@ -129,18 +132,240 @@ void ImageStretcher::update_auto_points(const Histogram& hist) {
 std::vector<uint8_t> ImageStretcher::convert_to_preview_8bit(const core::Frame& frame, Histogram* out_hist) {
     if (!frame.is_valid()) return {};
 
-    Histogram hist = compute_histogram(frame);
+    const int w = frame.width;
+    const int h = frame.height;
+    const int ch = std::max(1, frame.channels);
+    const size_t count = frame.pixel_count();
+    const uint16_t* raw_src = frame.pixels.get();
+
+    // Create mutable 16-bit working buffer if any 16-bit preprocessing / EV shift is active
+    const bool has_ev_shift = (std::abs(config_.exp_gain_shift) > 0.01f);
+    const bool need_preproc = has_ev_shift ||
+                              (config_.background_subtraction > 0) ||
+                              (config_.banding_suppression > 0) ||
+                              config_.remove_satellite_trails ||
+                              config_.planet_stabilization ||
+                              config_.ca_reduction;
+
+    std::vector<uint16_t> work16;
+    const uint16_t* src = raw_src;
+
+    if (need_preproc) {
+        work16.assign(raw_src, raw_src + count);
+
+        // 1. Exposure/Gain Shift (EV stops: multiplier = 2^shift)
+        if (has_ev_shift) {
+            float ev_mult = std::pow(2.0f, std::clamp(config_.exp_gain_shift, -5.0f, 5.0f));
+            for (size_t i = 0; i < count; ++i) {
+                float v = static_cast<float>(work16[i]) * ev_mult;
+                work16[i] = static_cast<uint16_t>(std::clamp(v, 0.0f, 65535.0f));
+            }
+        }
+
+        // 2. Background Subtraction (1=Simple Offset, 2=Blended Sky Offset, 3=Linear Twilight Gradient)
+        if (config_.background_subtraction > 0 && w >= 4 && h >= 4) {
+            // Sample 4 corner regions (each 8x8 or w/8 x h/8) to estimate sky background & gradient
+            int cw = std::clamp(w / 10, 2, 32);
+            int ch_box = std::clamp(h / 10, 2, 32);
+            auto corner_mean = [&](int x0, int y0, int c_idx) -> float {
+                double s = 0.0;
+                int n = 0;
+                for (int y = y0; y < y0 + ch_box && y < h; ++y) {
+                    for (int x = x0; x < x0 + cw && x < w; ++x) {
+                        s += work16[(static_cast<size_t>(y) * w + x) * ch + c_idx];
+                        ++n;
+                    }
+                }
+                return (n > 0) ? static_cast<float>(s / n) : 0.0f;
+            };
+
+            for (int c_idx = 0; c_idx < ch; ++c_idx) {
+                float tl = corner_mean(0, 0, c_idx);
+                float tr = corner_mean(w - cw, 0, c_idx);
+                float bl = corner_mean(0, h - ch_box, c_idx);
+                float br = corner_mean(w - cw, h - ch_box, c_idx);
+                float min_bg = std::min({tl, tr, bl, br});
+
+                if (config_.background_subtraction == 1) {
+                    // Simple Offset
+                    uint16_t offset = static_cast<uint16_t>(min_bg * 0.85f);
+                    for (int y = 0; y < h; ++y) {
+                        for (int x = 0; x < w; ++x) {
+                            size_t idx = (static_cast<size_t>(y) * w + x) * ch + c_idx;
+                            work16[idx] = (work16[idx] > offset) ? (work16[idx] - offset) : 0;
+                        }
+                    }
+                } else if (config_.background_subtraction == 2) {
+                    // Blended Offset (preserves bright lunar limb while suppressing sky floor)
+                    float bg_floor = min_bg * 0.90f;
+                    for (int y = 0; y < h; ++y) {
+                        for (int x = 0; x < w; ++x) {
+                            size_t idx = (static_cast<size_t>(y) * w + x) * ch + c_idx;
+                            float val = static_cast<float>(work16[idx]);
+                            float sub = std::max(0.0f, val - bg_floor);
+                            work16[idx] = static_cast<uint16_t>(std::clamp(sub * 1.15f, 0.0f, 65535.0f));
+                        }
+                    }
+                } else if (config_.background_subtraction == 3) {
+                    // Linear Twilight Gradient (bilinear interpolation of 4 corners)
+                    for (int y = 0; y < h; ++y) {
+                        float fy = static_cast<float>(y) / std::max(1, h - 1);
+                        float left_bg = tl * (1.0f - fy) + bl * fy;
+                        float right_bg = tr * (1.0f - fy) + br * fy;
+                        for (int x = 0; x < w; ++x) {
+                            float fx = static_cast<float>(x) / std::max(1, w - 1);
+                            float grad_bg = (left_bg * (1.0f - fx) + right_bg * fx) * 0.88f;
+                            size_t idx = (static_cast<size_t>(y) * w + x) * ch + c_idx;
+                            float val = static_cast<float>(work16[idx]);
+                            work16[idx] = static_cast<uint16_t>(std::clamp(val - grad_bg, 0.0f, 65535.0f));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Horizontal CMOS Banding Suppression (0..100)
+        if (config_.banding_suppression > 0 && h >= 8) {
+            float strength = std::clamp(config_.banding_suppression / 100.0f, 0.0f, 1.0f);
+            std::vector<float> row_means(h, 0.0f);
+            for (int y = 0; y < h; ++y) {
+                double sum = 0.0;
+                const size_t row_start = static_cast<size_t>(y) * w * ch;
+                const size_t row_elems = static_cast<size_t>(w) * ch;
+                for (size_t i = 0; i < row_elems; ++i) {
+                    sum += work16[row_start + i];
+                }
+                row_means[y] = static_cast<float>(sum / std::max<size_t>(1, row_elems));
+            }
+            for (int y = 0; y < h; ++y) {
+                float local_sum = 0.0f;
+                int local_cnt = 0;
+                for (int dy = -6; dy <= 6; ++dy) {
+                    int ny = std::clamp(y + dy, 0, h - 1);
+                    local_sum += row_means[ny];
+                    ++local_cnt;
+                }
+                float local_avg = local_sum / local_cnt;
+                float delta = (row_means[y] - local_avg) * strength;
+                const size_t row_start = static_cast<size_t>(y) * w * ch;
+                const size_t row_elems = static_cast<size_t>(w) * ch;
+                for (size_t i = 0; i < row_elems; ++i) {
+                    float v = static_cast<float>(work16[row_start + i]) - delta;
+                    work16[row_start + i] = static_cast<uint16_t>(std::clamp(v, 0.0f, 65535.0f));
+                }
+            }
+        }
+
+        // 4. Remove Satellite Trails / Hot Line Outliers
+        if (config_.remove_satellite_trails && h >= 3 && w >= 3) {
+            std::vector<uint16_t> cleaned = work16;
+            for (int y = 1; y + 1 < h; ++y) {
+                for (int x = 1; x + 1 < w; ++x) {
+                    for (int c_idx = 0; c_idx < ch; ++c_idx) {
+                        size_t idx = (static_cast<size_t>(y) * w + x) * ch + c_idx;
+                        uint16_t up = work16[(static_cast<size_t>(y - 1) * w + x) * ch + c_idx];
+                        uint16_t dn = work16[(static_cast<size_t>(y + 1) * w + x) * ch + c_idx];
+                        uint16_t lf = work16[(static_cast<size_t>(y) * w + (x - 1)) * ch + c_idx];
+                        uint16_t rt = work16[(static_cast<size_t>(y) * w + (x + 1)) * ch + c_idx];
+                        uint32_t avg_nb = (static_cast<uint32_t>(up) + dn + lf + rt) / 4;
+                        if (work16[idx] > avg_nb + 12000 && std::abs(static_cast<int>(up) - static_cast<int>(dn)) < 4000) {
+                            cleaned[idx] = static_cast<uint16_t>(avg_nb);
+                        }
+                    }
+                }
+            }
+            work16.swap(cleaned);
+        }
+
+        // 5. CA Reduction / Synthetic Blue (reduces atmospheric dispersion blue halo)
+        if (config_.ca_reduction && ch >= 3) {
+            size_t num_px = static_cast<size_t>(w) * h;
+            for (size_t p = 0; p < num_px; ++p) {
+                size_t base = p * ch;
+                float r = static_cast<float>(work16[base + 0]);
+                float g = static_cast<float>(work16[base + 1]);
+                float b = static_cast<float>(work16[base + 2]);
+                float synth_b = std::clamp(2.0f * g - r, 0.0f, 65535.0f);
+                work16[base + 2] = static_cast<uint16_t>(std::clamp(0.55f * b + 0.45f * synth_b, 0.0f, 65535.0f));
+            }
+        }
+
+        // 6. Planet / Disk Stabilization (Centroid Lock)
+        if (config_.planet_stabilization && w >= 16 && h >= 16) {
+            double sum_w = 0.0, sum_x = 0.0, sum_y = 0.0;
+            for (int y = 0; y < h; y += 2) {
+                for (int x = 0; x < w; x += 2) {
+                    size_t idx = (static_cast<size_t>(y) * w + x) * ch;
+                    double val = work16[idx];
+                    if (val > 8000.0) {
+                        double weight = val - 8000.0;
+                        sum_w += weight;
+                        sum_x += weight * x;
+                        sum_y += weight * y;
+                    }
+                }
+            }
+            if (sum_w > 1000.0) {
+                float cx = static_cast<float>(sum_x / sum_w);
+                float cy = static_cast<float>(sum_y / sum_w);
+                if (ref_centroid_x_ < 0.0f || ref_centroid_y_ < 0.0f) {
+                    ref_centroid_x_ = cx;
+                    ref_centroid_y_ = cy;
+                } else {
+                    int dx = std::clamp(static_cast<int>(std::lround(cx - ref_centroid_x_)), -w / 4, w / 4);
+                    int dy = std::clamp(static_cast<int>(std::lround(cy - ref_centroid_y_)), -h / 4, h / 4);
+                    if (std::abs(dx) >= 1 || std::abs(dy) >= 1) {
+                        std::vector<uint16_t> shifted(count, 0);
+                        for (int y = 0; y < h; ++y) {
+                            int sy = y + dy;
+                            if (sy < 0 || sy >= h) continue;
+                            for (int x = 0; x < w; ++x) {
+                                int sx = x + dx;
+                                if (sx < 0 || sx >= w) continue;
+                                size_t dst_i = (static_cast<size_t>(y) * w + x) * ch;
+                                size_t src_i = (static_cast<size_t>(sy) * w + sx) * ch;
+                                for (int c_idx = 0; c_idx < ch; ++c_idx) {
+                                    shifted[dst_i + c_idx] = work16[src_i + c_idx];
+                                }
+                            }
+                        }
+                        work16.swap(shifted);
+                    }
+                }
+            }
+        }
+
+        src = work16.data();
+    } else {
+        ref_centroid_x_ = -1.0f;
+        ref_centroid_y_ = -1.0f;
+    }
+
+    // Compute histogram on the active working buffer so the histogram reflects EV Shift & Preprocessing!
+    core::Frame hist_frame = frame;
+    if (!work16.empty()) {
+        hist_frame = core::Frame::create_allocated(w, h, ch, frame.bit_depth);
+        std::memcpy(hist_frame.pixels.get(), work16.data(), count * sizeof(uint16_t));
+    }
+    Histogram hist = compute_histogram(hist_frame);
     if (out_hist) {
         *out_hist = hist;
     }
 
-    float bp = config_.black_point;
-    float wp = config_.white_point;
+    float bp = 0.0f;
+    float wp = 65535.0f;
+    float gamma = 1.0f;
 
-    if (config_.auto_stretch) {
-        update_auto_points(hist);
-        bp = smooth_black_;
-        wp = smooth_white_;
+    if (config_.stretch_enabled) {
+        bp = config_.black_point;
+        wp = config_.white_point;
+        gamma = (config_.gamma > 0.05f) ? config_.gamma : 1.0f;
+
+        if (config_.auto_stretch) {
+            update_auto_points(hist);
+            bp = smooth_black_;
+            wp = smooth_white_;
+        }
     }
 
     if (wp <= bp) {
@@ -148,35 +373,69 @@ std::vector<uint8_t> ImageStretcher::convert_to_preview_8bit(const core::Frame& 
     }
 
     float inv_range = 1.0f / (wp - bp);
-    float gamma = (config_.gamma > 0.05f) ? config_.gamma : 1.0f;
     bool need_gamma = std::abs(gamma - 1.0f) > 0.01f;
 
-    size_t count = frame.pixel_count();
-    const uint16_t* src = frame.pixels.get();
-    std::vector<uint8_t> dst(count);
-
-    for (size_t i = 0; i < count; ++i) {
-        float norm = (static_cast<float>(src[i]) - bp) * inv_range;
+    // Build 16-bit to 8-bit LUT for ultra-fast O(1) per-pixel stretch + gamma
+    std::array<uint8_t, 65536> lut{};
+    for (int v = 0; v < 65536; ++v) {
+        float norm = (static_cast<float>(v) - bp) * inv_range;
         norm = std::clamp(norm, 0.0f, 1.0f);
         if (need_gamma) {
-            norm = std::pow(norm, gamma);
+            norm = std::pow(norm, 1.0f / gamma); // gamma > 1 brightens midtones, matching SharpCap
         }
-        dst[i] = static_cast<uint8_t>(norm * 255.0f + 0.5f);
+        lut[v] = static_cast<uint8_t>(norm * 255.0f + 0.5f);
+    }
+
+    std::vector<uint8_t> dst(count);
+    for (size_t i = 0; i < count; ++i) {
+        dst[i] = lut[src[i]];
     }
 
     // Optional preview-only enhancements
     if (config_.clahe_enabled) {
-        apply_clahe(dst.data(), frame.width, frame.height, frame.channels);
+        apply_clahe(dst.data(), w, h, ch);
     }
 
     if (config_.sharpen_enabled) {
-        apply_sharpen(dst.data(), frame.width, frame.height, frame.channels);
+        apply_sharpen(dst.data(), w, h, ch);
     }
 
     if (config_.invert_enabled) {
         for (size_t i = 0; i < count; ++i) {
             dst[i] = 255 - dst[i];
         }
+    }
+
+    // Mask over-exposed pixels (highlight saturated pixels in vivid Magenta/Red)
+    if (config_.mask_over_exposed && ch >= 3) {
+        size_t num_px = static_cast<size_t>(w) * h;
+        for (size_t p = 0; p < num_px; ++p) {
+            size_t base = p * ch;
+            if (src[base + 0] >= 64800 || src[base + 1] >= 64800 || src[base + 2] >= 64800) {
+                dst[base + 0] = 255;
+                dst[base + 1] = 0;
+                dst[base + 2] = 220;
+            }
+        }
+    }
+
+    // Flip (after dark/flat): 1=Horizontal, 2=Vertical, 3=Both
+    if (config_.flip_mode > 0 && w >= 2 && h >= 2) {
+        const bool flip_h = (config_.flip_mode == 1 || config_.flip_mode == 3);
+        const bool flip_v = (config_.flip_mode == 2 || config_.flip_mode == 3);
+        std::vector<uint8_t> flipped(count);
+        for (int y = 0; y < h; ++y) {
+            int sy = flip_v ? (h - 1 - y) : y;
+            for (int x = 0; x < w; ++x) {
+                int sx = flip_h ? (w - 1 - x) : x;
+                size_t dst_i = (static_cast<size_t>(y) * w + x) * ch;
+                size_t src_i = (static_cast<size_t>(sy) * w + sx) * ch;
+                for (int c_idx = 0; c_idx < ch; ++c_idx) {
+                    flipped[dst_i + c_idx] = dst[src_i + c_idx];
+                }
+            }
+        }
+        dst.swap(flipped);
     }
 
     return dst;

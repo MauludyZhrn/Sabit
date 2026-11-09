@@ -32,6 +32,9 @@ public:
     void set_show_sensor_ar(bool show);
     [[nodiscard]] bool show_sensor_ar() const { return show_sensor_ar_; }
 
+    void set_show_timestamp(bool show);
+    [[nodiscard]] bool show_timestamp() const { return show_timestamp_; }
+
     void set_zoom_preset(double factor);
     [[nodiscard]] double zoom_factor() const { return zoom_factor_; }
     void reset_zoom_pan();
@@ -60,6 +63,7 @@ private:
     bool show_crosshair_{false};
     bool show_grid_{false};
     bool show_sensor_ar_{true};
+    bool show_timestamp_{false};
 
     // HUD Info
     int64_t hud_exp_us_{33333};
