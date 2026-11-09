@@ -154,10 +154,12 @@ void test_theme_and_translator() {
     auto& tr = ui::Translator::instance();
     tr.set_language(ui::Language::Indonesian);
     TEST_CHECK(ui::tr_str("connect_camera") == "Hubungkan Kamera", "Indonesian translation mismatch");
+    TEST_CHECK(ui::tr_str("driver_setup") == "Pengaturan Driver...", "Indonesian driver_setup translation mismatch");
     TEST_CHECK(ui::tr_str("sunset") == "Matahari Terbenam (Maghrib)", "Indonesian sunset translation mismatch");
 
     tr.set_language(ui::Language::English);
     TEST_CHECK(ui::tr_str("connect_camera") == "Connect Camera", "English translation mismatch");
+    TEST_CHECK(ui::tr_str("driver_setup") == "Driver Setup...", "English driver_setup translation mismatch");
     TEST_CHECK(ui::tr_str("sunset") == "Sunset (Maghrib)", "English sunset translation mismatch");
 
     std::cout << "  PASS: ThemeManager and Translator verified." << std::endl;

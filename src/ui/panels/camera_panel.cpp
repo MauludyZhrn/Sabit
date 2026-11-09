@@ -244,12 +244,12 @@ void CameraPanel::reset_to_defaults() {
     exp_slider_->setValue(def_exp_ms);
     exp_val_lbl_->setText(QString("%1: %2 ms").arg(tr_str("exposure")).arg(def_exp_ms));
     auto_exp_chk_->setChecked(is_uvc);
-    exp_slider_->setEnabled(!is_uvc);
+    exp_slider_->setEnabled(current_caps_.capabilities.can_control_exposure && !is_uvc);
 
     gain_slider_->setValue(std::clamp(def_gain, gain_slider_->minimum(), gain_slider_->maximum()));
     gain_val_lbl_->setText(QString("%1: %2 dB").arg(tr_str("gain")).arg(gain_slider_->value()));
     auto_gain_chk_->setChecked(false);
-    gain_slider_->setEnabled(true);
+    gain_slider_->setEnabled(current_caps_.capabilities.can_control_gain);
 
     w_red_slider_->setValue(50);
     w_blue_slider_->setValue(50);
@@ -268,7 +268,7 @@ void CameraPanel::apply_preset(int64_t exp_us, double gain) {
     int exp_ms = static_cast<int>(exp_us / 1000);
     if (exp_slider_) {
         exp_slider_->setValue(exp_ms);
-        exp_slider_->setEnabled(true);
+        exp_slider_->setEnabled(current_caps_.capabilities.can_control_exposure);
     }
     if (exp_val_lbl_) {
         if (exp_ms >= 1000) {
@@ -283,7 +283,7 @@ void CameraPanel::apply_preset(int64_t exp_us, double gain) {
 
     if (gain_slider_) {
         gain_slider_->setValue(static_cast<int>(gain));
-        gain_slider_->setEnabled(true);
+        gain_slider_->setEnabled(current_caps_.capabilities.can_control_gain);
     }
     if (gain_val_lbl_) {
         gain_val_lbl_->setText(QString("%1: %2 dB").arg(tr_str("gain")).arg(static_cast<int>(gain)));
@@ -352,12 +352,12 @@ void CameraPanel::set_caps(const camera::CameraCaps& caps) {
         exp_slider_->setValue(std::clamp(100, min_exp_ms, max_exp_ms));
         exp_val_lbl_->setText(QString("%1: %2 ms").arg(tr_str("exposure")).arg(exp_slider_->value()));
         auto_exp_chk_->setChecked(false);
-        exp_slider_->setEnabled(true);
+        exp_slider_->setEnabled(caps.capabilities.can_control_exposure);
 
         gain_slider_->setValue(std::clamp(100, min_g, max_g));
         gain_val_lbl_->setText(QString("%1: %2 dB").arg(tr_str("gain")).arg(gain_slider_->value()));
         auto_gain_chk_->setChecked(false);
-        gain_slider_->setEnabled(true);
+        gain_slider_->setEnabled(caps.capabilities.can_control_gain);
     }
 
     if (caps.is_color) {

@@ -1,9 +1,11 @@
 #include "src/ui/dialogs/camera_dialog.h"
+#include "src/camera/ascom/ascom_camera.h"
 #include "src/ui/fluent/fluent_card.h"
 #include "src/ui/i18n/translator.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMessageBox>
 #include <QVBoxLayout>
 #include <QTreeWidgetItem>
 #include <QFont>
@@ -105,6 +107,8 @@ CameraDialog::CameraDialog(const std::vector<camera::CameraId>& cameras, QWidget
     // Footer Action Bar
     auto* btn_box = new QHBoxLayout();
     btn_box->setSpacing(8);
+    setup_btn_ = new QPushButton(tr_str("driver_setup"), this);
+    setup_btn_->setCursor(Qt::PointingHandCursor);
     cancel_btn_ = new QPushButton(tr_str("cancel"), this);
     connect_btn_ = new QPushButton(tr_str("connect_camera"), this);
     connect_btn_->setProperty("class", "primary");
@@ -112,19 +116,43 @@ CameraDialog::CameraDialog(const std::vector<camera::CameraId>& cameras, QWidget
     connect_btn_->setCursor(Qt::PointingHandCursor);
     connect_btn_->setEnabled(first_selectable_child != nullptr);
 
+    auto update_buttons_for_item = [this](QTreeWidgetItem* item) {
+        if (!item) {
+            connect_btn_->setEnabled(false);
+            setup_btn_->setEnabled(false);
+            return;
+        }
+        int idx = item->data(0, Qt::UserRole).toInt();
+        bool valid = (idx >= 0 && static_cast<size_t>(idx) < cameras_.size());
+        connect_btn_->setEnabled(valid);
+        setup_btn_->setEnabled(valid && cameras_[idx].driver == "ascom");
+    };
+    update_buttons_for_item(first_selectable_child);
+
+    btn_box->addWidget(setup_btn_);
     btn_box->addStretch();
     btn_box->addWidget(cancel_btn_);
     btn_box->addWidget(connect_btn_);
 
     layout->addLayout(btn_box);
 
-    connect(tree_widget_, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem* current, QTreeWidgetItem*) {
-        if (!current) {
-            connect_btn_->setEnabled(false);
+    connect(tree_widget_, &QTreeWidget::currentItemChanged, this, [update_buttons_for_item](QTreeWidgetItem* current, QTreeWidgetItem*) {
+        update_buttons_for_item(current);
+    });
+
+    connect(setup_btn_, &QPushButton::clicked, this, [this, is_id]() {
+        auto sel = selected_camera();
+        if (!sel.has_value() || sel->driver != "ascom") {
             return;
         }
-        int idx = current->data(0, Qt::UserRole).toInt();
-        connect_btn_->setEnabled(idx >= 0);
+        auto res = camera::AscomCamera::show_driver_setup(sel->id);
+        if (res.is_err()) {
+            QMessageBox::warning(
+                this,
+                is_id ? "Pengaturan Driver ASCOM" : "ASCOM Driver Setup",
+                QString::fromStdString(res.error().message)
+            );
+        }
     });
 
     connect(connect_btn_, &QPushButton::clicked, this, [this]() {

@@ -20,6 +20,7 @@ public:
 private:
     std::vector<camera::CameraId> cameras_;
     QTreeWidget* tree_widget_{nullptr};
+    QPushButton* setup_btn_{nullptr};
     QPushButton* connect_btn_{nullptr};
     QPushButton* cancel_btn_{nullptr};
 };

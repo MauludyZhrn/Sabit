@@ -14,6 +14,8 @@
 
 namespace sabit::camera {
 
+[[nodiscard]] uint16_t scale_to_u16(int32_t value, int32_t max_adu);
+
 class AscomCamera : public ICamera {
 public:
     AscomCamera();
@@ -33,6 +35,10 @@ public:
     void set_disconnected_callback(std::function<void()> cb) { on_disconnected_ = std::move(cb); }
 
     static std::vector<CameraId> enumerate_cameras(bool include_fallback_defaults = true);
+    static core::Result<void> show_driver_setup(const std::string& prog_id);
+    static uint16_t scale_to_u16(int32_t value, int32_t max_adu) {
+        return sabit::camera::scale_to_u16(value, max_adu);
+    }
 
 private:
     struct Command {
@@ -50,6 +56,7 @@ private:
     CameraSettings active_settings_{};
     bool is_open_{false};
     bool can_abort_exposure_{false};
+    int32_t max_adu_{65535};
     std::atomic<bool> worker_running_{false};
     std::atomic<bool> is_streaming_{false};
     std::atomic<bool> is_disconnected_{false};

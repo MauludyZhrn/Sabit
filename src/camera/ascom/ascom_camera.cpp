@@ -218,12 +218,99 @@ void enumerate_registry_root(HKEY root, const char* subkey_path, REGSAM sam_flag
     RegCloseKey(hKey);
 }
 
+std::atomic<int> g_connected_ascom_count{0};
+
 } // namespace
+
+uint16_t scale_to_u16(int32_t value, int32_t max_adu) {
+    if (value <= 0) {
+        return 0;
+    }
+    if (max_adu > 0 && max_adu <= 255) {
+        int32_t clamped = std::min(value, max_adu);
+        return static_cast<uint16_t>((static_cast<int64_t>(clamped) * 65535) / max_adu);
+    }
+    return static_cast<uint16_t>(std::clamp<int32_t>(value, 0, 65535));
+}
 
 AscomCamera::AscomCamera() = default;
 
 AscomCamera::~AscomCamera() {
     close();
+}
+
+core::Result<void> AscomCamera::show_driver_setup(const std::string& prog_id) {
+    if (g_connected_ascom_count.load() > 0) {
+        return core::Result<void>::err(
+            core::ErrorCode::Busy,
+            "Cannot open ASCOM SetupDialog while camera is connected"
+        );
+    }
+
+    std::string clean_id = prog_id;
+    if (clean_id.rfind("ASCOM:", 0) == 0) {
+        clean_id = clean_id.substr(6);
+    }
+    if (clean_id.empty()) {
+        return core::Result<void>::err(
+            core::ErrorCode::NotFound,
+            "ASCOM ProgID is empty"
+        );
+    }
+
+    auto setup_promise = std::make_shared<std::promise<core::Result<void>>>();
+    auto setup_future = setup_promise->get_future();
+
+    std::thread sta_thread([clean_id, setup_promise]() {
+        HRESULT hr_init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+        bool should_uninit = SUCCEEDED(hr_init);
+
+        CLSID clsid{};
+        std::wstring w_prog_id = utf8_to_wide(clean_id);
+        if (FAILED(CLSIDFromProgID(w_prog_id.c_str(), &clsid))) {
+            setup_promise->set_value(core::Result<void>::err(
+                core::ErrorCode::DriverMissing,
+                "ASCOM ProgID not registered on this system: " + clean_id
+            ));
+            if (should_uninit) CoUninitialize();
+            return;
+        }
+
+        IDispatch* disp = nullptr;
+        HRESULT hr = CoCreateInstance(clsid, nullptr, CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER, IID_IDispatch, reinterpret_cast<void**>(&disp));
+        pump_sta_messages();
+        if (FAILED(hr) || !disp) {
+            setup_promise->set_value(core::Result<void>::err(
+                core::ErrorCode::HardwareError,
+                "Failed to instantiate ASCOM driver COM object: " + clean_id
+            ));
+            if (should_uninit) CoUninitialize();
+            return;
+        }
+
+        HRESULT hr_setup = com_call_void_method(disp, L"SetupDialog");
+        pump_sta_messages();
+        disp->Release();
+        if (should_uninit) CoUninitialize();
+
+        if (FAILED(hr_setup)) {
+            setup_promise->set_value(core::Result<void>::err(
+                core::ErrorCode::HardwareError,
+                "ASCOM SetupDialog call failed for: " + clean_id
+            ));
+            return;
+        }
+
+        setup_promise->set_value(core::Result<void>::ok());
+    });
+
+    while (setup_future.wait_for(std::chrono::milliseconds(15)) != std::future_status::ready) {
+        pump_sta_messages();
+    }
+    if (sta_thread.joinable()) {
+        sta_thread.join();
+    }
+    return setup_future.get();
 }
 
 std::vector<CameraId> AscomCamera::enumerate_cameras(bool include_fallback_defaults) {
@@ -320,7 +407,10 @@ void AscomCamera::close() {
         worker_thread_.join();
     }
     std::lock_guard<std::mutex> lock(state_mutex_);
-    is_open_ = false;
+    if (is_open_) {
+        is_open_ = false;
+        g_connected_ascom_count.fetch_sub(1);
+    }
 }
 
 CameraCaps AscomCamera::caps() const {
@@ -401,8 +491,10 @@ core::Result<CameraSettings> AscomCamera::execute_apply_com(void* disp_ptr, cons
     }
 
     if (req.gain.has_value()) {
-        short g = static_cast<short>(std::clamp(*req.gain, 0.0, 1000.0));
-        com_put_short(disp, L"Gain", g);
+        if (caps_.capabilities.can_control_gain) {
+            short g = static_cast<short>(std::clamp(*req.gain, 0.0, 1000.0));
+            com_put_short(disp, L"Gain", g);
+        }
         active_settings_.gain = *req.gain;
     }
 
@@ -502,12 +594,19 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
         return;
     }
 
+    // Enable FastReadout if supported by CCD/CMOS/DSLR driver for smoother live preview
+    com_put_bool(disp, L"FastReadout", true);
+    pump_sta_messages();
+
     long cam_x = com_get_long(disp, L"CameraXSize", 1920);
     long cam_y = com_get_long(disp, L"CameraYSize", 1080);
     long max_bin_x = com_get_long(disp, L"MaxBinX", 4);
     bool can_set_temp = com_get_bool(disp, L"CanSetCCDTemperature", false);
     can_abort_exposure_ = com_get_bool(disp, L"CanAbortExposure", false);
     long sensor_type = com_get_long(disp, L"SensorType", 0); // 0=Mono, 1=Color, 2=RGGB
+    long raw_max_adu = com_get_long(disp, L"MaxADU", 65535);
+    max_adu_ = (raw_max_adu > 0) ? static_cast<int32_t>(raw_max_adu) : 65535;
+    const bool is_live_view_adu = (max_adu_ <= 255);
     long gain_min = com_get_long(disp, L"GainMin", 0);
     long gain_max = com_get_long(disp, L"GainMax", 400);
     if (gain_max <= gain_min) {
@@ -537,23 +636,23 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
         }
         caps_.supported_bit_depths = {8, 16};
 
-        caps_.capabilities.can_control_exposure = true;
-        caps_.capabilities.can_control_gain = true;
+        caps_.capabilities.can_control_exposure = !is_live_view_adu;
+        caps_.capabilities.can_control_gain = !is_live_view_adu;
         caps_.capabilities.can_control_wb = false;
         caps_.capabilities.can_control_roi = true;
         caps_.capabilities.can_control_pixel_format = true;
-        caps_.capabilities.has_hardware_exposure = true;
-        caps_.capabilities.has_hardware_gain = true;
+        caps_.capabilities.has_hardware_exposure = !is_live_view_adu;
+        caps_.capabilities.has_hardware_gain = !is_live_view_adu;
         caps_.capabilities.has_software_fallback = false;
         caps_.capabilities.can_auto_exposure = false;
         caps_.capabilities.can_auto_gain = false;
         caps_.capabilities.can_crop_dslr_aspect = false;
 
-        is_open_ = true;
+        if (!is_open_) {
+            is_open_ = true;
+            g_connected_ascom_count.fetch_add(1);
+        }
     }
-
-    // Enable FastReadout if supported by CCD/CMOS/DSLR driver for smoother live preview
-    com_put_bool(disp, L"FastReadout", true);
 
     // Apply initial settings once on the connected COM object
     CameraSettings init_req = active_settings_;
@@ -569,6 +668,8 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
     uint64_t seq = 0;
     auto last_fps_time = std::chrono::steady_clock::now();
     auto last_temp_time = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+    auto last_warn_time = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+    uint64_t suppressed_warns = 0;
     uint64_t frames_in_second = 0;
 
     while (worker_running_.load()) {
@@ -600,7 +701,14 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
         exp_sec = std::max(0.001, exp_sec);
 
         if (FAILED(com_call_start_exposure(disp, exp_sec, true))) {
-            SABIT_LOG_WARN("[ASCOM] StartExposure failed on: ", prog_id_);
+            auto now_warn = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::seconds>(now_warn - last_warn_time).count() >= 5) {
+                SABIT_LOG_WARN("[ASCOM] StartExposure failed on: ", prog_id_, " (suppressed: ", suppressed_warns, ")");
+                last_warn_time = now_warn;
+                suppressed_warns = 0;
+            } else {
+                ++suppressed_warns;
+            }
             pump_sta_messages();
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
@@ -642,7 +750,14 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
 
             auto waited_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - exp_start).count();
             if (waited_s > max_wait_s) {
-                SABIT_LOG_WARN("[ASCOM] Exposure wait timed out after ", waited_s, "s on: ", prog_id_);
+                auto now_warn = std::chrono::steady_clock::now();
+                if (std::chrono::duration_cast<std::chrono::seconds>(now_warn - last_warn_time).count() >= 5) {
+                    SABIT_LOG_WARN("[ASCOM] Exposure wait timed out after ", waited_s, "s on: ", prog_id_, " (suppressed: ", suppressed_warns, ")");
+                    last_warn_time = now_warn;
+                    suppressed_warns = 0;
+                } else {
+                    ++suppressed_warns;
+                }
                 if (can_abort_exposure_) {
                     com_call_void_method(disp, L"AbortExposure");
                 }
@@ -727,36 +842,35 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
 
                             const size_t pixel_count = static_cast<size_t>(w) * static_cast<size_t>(h);
                             const size_t total_samples = pixel_count * static_cast<size_t>(ch);
+                            const int32_t sample_max_adu = (elem_vt == VT_UI1 || elem_vt == VT_I1 || (elem_vt == VT_EMPTY && psa->cbElements == 1))
+                                ? std::min<int32_t>(max_adu_, 255)
+                                : max_adu_;
 
                             auto read_sample = [&](size_t idx) -> uint16_t {
+                                int32_t v = 0;
                                 if (elem_vt == VT_I4 || elem_vt == VT_INT || elem_vt == VT_UI4 || (elem_vt == VT_EMPTY && psa->cbElements == 4)) {
-                                    const int32_t* src = static_cast<const int32_t*>(raw_ptr);
-                                    return static_cast<uint16_t>(std::clamp<int32_t>(src[idx], 0, 65535));
-                                } else if (elem_vt == VT_UI2 || elem_vt == VT_I2 || (elem_vt == VT_EMPTY && psa->cbElements == 2)) {
-                                    const uint16_t* src = static_cast<const uint16_t*>(raw_ptr);
-                                    return src[idx];
+                                    v = static_cast<const int32_t*>(raw_ptr)[idx];
+                                } else if (elem_vt == VT_UI2 || (elem_vt == VT_EMPTY && psa->cbElements == 2)) {
+                                    v = static_cast<int32_t>(static_cast<const uint16_t*>(raw_ptr)[idx]);
+                                } else if (elem_vt == VT_I2) {
+                                    v = static_cast<int32_t>(static_cast<const int16_t*>(raw_ptr)[idx]);
                                 } else if (elem_vt == VT_UI1 || elem_vt == VT_I1 || (elem_vt == VT_EMPTY && psa->cbElements == 1)) {
-                                    const uint8_t* src = static_cast<const uint8_t*>(raw_ptr);
-                                    uint16_t v = src[idx];
-                                    return static_cast<uint16_t>((v << 8) | v);
+                                    v = static_cast<int32_t>(static_cast<const uint8_t*>(raw_ptr)[idx]);
                                 } else if (elem_vt == VT_R8) {
-                                    const double* src = static_cast<const double*>(raw_ptr);
-                                    return static_cast<uint16_t>(std::clamp(src[idx], 0.0, 65535.0));
+                                    v = static_cast<int32_t>(std::lround(static_cast<const double*>(raw_ptr)[idx]));
                                 } else if (elem_vt == VT_VARIANT) {
-                                    const VARIANT* src = static_cast<const VARIANT*>(raw_ptr);
-                                    int32_t v = 0;
-                                    if (src[idx].vt == VT_I4 || src[idx].vt == VT_INT) v = src[idx].lVal;
-                                    else if (src[idx].vt == VT_I2) v = src[idx].iVal;
-                                    else if (src[idx].vt == VT_UI2) v = src[idx].uiVal;
-                                    else if (src[idx].vt == VT_UI1) v = static_cast<int32_t>(src[idx].bVal) << 8;
-                                    else if (src[idx].vt == VT_R8) v = static_cast<int32_t>(src[idx].dblVal);
-                                    return static_cast<uint16_t>(std::clamp<int32_t>(v, 0, 65535));
+                                    const VARIANT& var = static_cast<const VARIANT*>(raw_ptr)[idx];
+                                    if (var.vt == VT_I4 || var.vt == VT_INT) v = var.lVal;
+                                    else if (var.vt == VT_I2) v = var.iVal;
+                                    else if (var.vt == VT_UI2) v = var.uiVal;
+                                    else if (var.vt == VT_UI1) v = var.bVal;
+                                    else if (var.vt == VT_R8) v = static_cast<int32_t>(std::lround(var.dblVal));
                                 }
-                                return 0;
+                                return scale_to_u16(v, sample_max_adu);
                             };
 
                             if (ch == 1) {
-                                if (elem_vt == VT_UI2 || elem_vt == VT_I2 || (elem_vt == VT_EMPTY && psa->cbElements == 2)) {
+                                if (sample_max_adu > 255 && (elem_vt == VT_UI2 || elem_vt == VT_I2 || (elem_vt == VT_EMPTY && psa->cbElements == 2))) {
                                     std::memcpy(dst, raw_ptr, total_samples * sizeof(uint16_t));
                                 } else {
                                     for (size_t i = 0; i < total_samples; ++i) {

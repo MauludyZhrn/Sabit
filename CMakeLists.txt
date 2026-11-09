@@ -77,6 +77,11 @@ if(TARGET sabit_ui)
         Qt6::Gui
     )
     target_compile_features(Sabit PRIVATE cxx_std_20)
+
+    # Windows GUI Application Subsystem (prevents console window on startup)
+    if(WIN32)
+        target_link_options(Sabit PRIVATE -mwindows)
+    endif()
 endif()
 
 # Testing

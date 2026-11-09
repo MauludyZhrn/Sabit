@@ -1,0 +1,4 @@
+No_Sesi,Tanggal_UTC,Waktu_UTC,Kode_Observer,Lokasi_Stasiun,Latitude,Longitude,Elevasi_m,Perangkat_Kamera,Format_Simpan,Jumlah_Frame,Alt_Bulan_Deg,Azim_Bulan_Deg,Elongasi_Deg,Status_MABIMS,Deteksi_AI,Hilal_Teramati,Keterangan
+SES-001,2026-03-19,10:45:00,OBS-01,Semarang,-6.99,110.42,50,Simulator,FITS,100,5.2,274.5,7.1,Memenuhi,Terdeteksi (0.84),Ya,Uji coba baseline simulator astronomi
+SES-002,2026-03-19,10:55:00,OBS-01,Semarang,-6.99,110.42,50,UVC HDMI Capture,FITS,250,3.4,275.1,6.8,Memenuhi,Terdeteksi (0.76),Ya,Pengujian live stacking mean 16-bit
+SES-003,2026-03-19,11:10:00,OBS-01,Semarang,-6.99,110.42,50,UVC HDMI Capture,MP4,500,0.8,276.0,6.5,Belum Memenuhi,Tidak Terdeteksi,Tidak,Kondisi awan tebal di ufuk barat

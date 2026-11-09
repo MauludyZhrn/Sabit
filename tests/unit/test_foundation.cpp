@@ -14,6 +14,7 @@
 #include "src/core/latest_slot.h"
 #include "src/core/logger.h"
 #include "src/camera/icamera.h"
+#include "src/camera/ascom/ascom_camera.h"
 #include "src/camera/sim/simulator_camera.h"
 
 // Simple testing macros
@@ -317,6 +318,26 @@ void test_simulator_camera() {
     TEST_ASSERT(!cam.status().is_connected, "Camera status should be disconnected after close");
 }
 
+// 8. ASCOM MaxADU 8-bit Live View Scaling Tests
+void test_ascom_scale_to_u16() {
+    // Live View 8-bit scaling (MaxADU = 255)
+    TEST_ASSERT(scale_to_u16(255, 255) == 65535, "255 with MaxADU=255 must scale to 65535");
+    TEST_ASSERT(scale_to_u16(0, 255) == 0, "0 with MaxADU=255 must be 0");
+    TEST_ASSERT(scale_to_u16(500, 255) == 65535, "Values > MaxADU must clamp to 65535");
+    TEST_ASSERT(scale_to_u16(-10, 255) == 0, "Negative values must clamp to 0");
+
+    // 16-bit full-range (MaxADU = 65535) unchanged
+    TEST_ASSERT(scale_to_u16(0, 65535) == 0, "0 with MaxADU=65535 must remain 0");
+    TEST_ASSERT(scale_to_u16(255, 65535) == 255, "255 with MaxADU=65535 must remain 255");
+    TEST_ASSERT(scale_to_u16(32768, 65535) == 32768, "32768 with MaxADU=65535 must remain 32768");
+    TEST_ASSERT(scale_to_u16(65535, 65535) == 65535, "65535 with MaxADU=65535 must remain 65535");
+
+    // MaxADU = 0 safe (no division by zero)
+    TEST_ASSERT(scale_to_u16(0, 0) == 0, "0 with MaxADU=0 must be safe and return 0");
+    TEST_ASSERT(scale_to_u16(1024, 0) == 1024, "1024 with MaxADU=0 must be safe and return 1024");
+    TEST_ASSERT(scale_to_u16(-5, 0) == 0, "Negative with MaxADU=0 must clamp to 0");
+}
+
 int main() {
     std::cout << "========================================================\n";
     std::cout << " Sabit Foundation C++20 Unit Test Suite\n";
@@ -329,6 +350,7 @@ int main() {
     RUN_TEST(test_ring_buffer_multithreaded_invariant);
     RUN_TEST(test_latest_slot);
     RUN_TEST(test_simulator_camera);
+    RUN_TEST(test_ascom_scale_to_u16);
 
     std::cout << "========================================================\n";
     std::cout << " Summary: " << g_tests_passed << " passed, " << g_tests_failed << " failed.\n";

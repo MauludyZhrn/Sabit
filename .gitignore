@@ -5,6 +5,7 @@
 
 # Build & Distribution Artifacts
 build/
+build-release/
 bin/
 lib/
 out/
