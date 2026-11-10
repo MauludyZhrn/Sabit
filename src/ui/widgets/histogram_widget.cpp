@@ -99,7 +99,7 @@ QRectF HistogramWidget::button_rect(int index) const {
 }
 
 int HistogramWidget::hit_test_button(const QPointF& pos) const {
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         if (button_rect(i).contains(pos)) {
             return i;
         }
@@ -152,6 +152,8 @@ void HistogramWidget::mousePressEvent(QMouseEvent* event) {
                 auto_stretch_ = false;
                 stretch_enabled_ = true;
                 emit reset_stretch_requested();
+            } else if (btn == 5) {
+                emit save_requested();
             }
             update();
             return;
@@ -196,6 +198,7 @@ void HistogramWidget::mouseMoveEvent(QMouseEvent* event) {
         else if (btn == 2) setToolTip("Auto-Stretch Histogram (Lightning)");
         else if (btn == 3) setToolTip("Toggle Logarithmic / Linear Histogram Scale");
         else if (btn == 4) setToolTip("Reset Display Stretch to Default (Linear)");
+        else if (btn == 5) setToolTip("Quick Capture / Save Stretched Snapshot");
         else setToolTip("Drag dashed yellow lines to adjust Black Point, Midtones (Gamma), or White Point");
         update();
     }
@@ -395,7 +398,7 @@ void HistogramWidget::paintEvent(QPaintEvent*) {
     p.drawRect(pr);
 
     // Draw Right-Side 2-Column Action Button Bar (SharpCap Reference Image 3)
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         const QRectF br = button_rect(i);
         const bool is_hovered = (hovered_btn_ == i);
         bool is_active = false;
@@ -466,6 +469,15 @@ void HistogramWidget::paintEvent(QPaintEvent*) {
             arrow.lineTo(c.x() - 1.5, c.y() - 1.0);
             arrow.closeSubpath();
             p.fillPath(arrow, QColor("#E2E8F0"));
+        } else if (i == 5) {
+            // Save / Quick Capture floppy disk icon
+            const QColor sCol("#3B82F6");
+            p.setPen(QPen(sCol, 1.3));
+            p.setBrush(Qt::NoBrush);
+            QRectF disk(c.x() - 5.0, c.y() - 5.0, 10.0, 10.0);
+            p.drawRoundedRect(disk, 1.2, 1.2);
+            p.drawRect(QRectF(c.x() - 3.0, c.y() - 5.0, 5.5, 3.5));
+            p.fillRect(QRectF(c.x() - 3.2, c.y() + 0.5, 6.4, 4.2), sCol);
         }
     }
 

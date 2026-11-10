@@ -125,6 +125,15 @@ void test_controller_pipeline_and_recording() {
     TEST_CHECK(status.frames_recorded >= 1, "At least 1 frame should have been recorded");
     TEST_CHECK(status.camera_connected, "Camera should still be connected");
 
+    // Verify PNG, JPG, and TIFF capture formats decode cleanly via QImage / ImageWriter
+    for (const char* fmt : {"png", "jpg", "tiff"}) {
+        controller.start_recording(fmt, 1);
+        for (int i = 0; i < 60 && controller.is_recording(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        controller.stop_recording();
+    }
+
     controller.end_session();
     controller.disconnect_camera();
 

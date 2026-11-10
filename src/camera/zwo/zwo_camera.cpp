@@ -419,7 +419,7 @@ void ZwoCamera::camera_worker_loop() {
         int bytes_per_pixel = (img_type == ASI_IMG_RAW8) ? 1 : 2;
         long buffer_size = static_cast<long>(w * h * bytes_per_pixel);
 
-        core::Frame frame = core::Frame::create_allocated(w, h, 1, (img_type == ASI_IMG_RAW8) ? 8 : 16);
+        core::Frame frame = core::Frame::create_allocated(w, h, 1, 16);
         frame.seq = ++seq;
         frame.bayer = caps_.bayer;
 

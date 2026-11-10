@@ -90,9 +90,14 @@ public:
     /**
      * Convert 16-bit frame to 8-bit preview frame (LatestSlot consumer).
      * Applies stretch (manual or auto EMA), followed by optional CLAHE/Sharpen/Invert.
+     * Optionally outputs the 16-bit preprocessed/stretched/flipped frame into out_proc16.
      * Returns 8-bit pixels in std::vector<uint8_t>.
      */
-    std::vector<uint8_t> convert_to_preview_8bit(const core::Frame& frame, Histogram* out_hist = nullptr);
+    std::vector<uint8_t> convert_to_preview_8bit(
+        const core::Frame& frame,
+        Histogram* out_hist = nullptr,
+        core::Frame* out_proc16 = nullptr
+    );
 
 private:
     void update_auto_points(const Histogram& hist);

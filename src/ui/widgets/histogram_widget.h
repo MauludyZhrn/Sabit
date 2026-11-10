@@ -30,6 +30,7 @@ signals:
     void auto_stretch_toggled(bool enabled);
     void invert_toggled(bool enabled);
     void reset_stretch_requested();
+    void save_requested();
 
 protected:
     void paintEvent(QPaintEvent* event) override;

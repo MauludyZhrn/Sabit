@@ -129,7 +129,11 @@ void ImageStretcher::update_auto_points(const Histogram& hist) {
     }
 }
 
-std::vector<uint8_t> ImageStretcher::convert_to_preview_8bit(const core::Frame& frame, Histogram* out_hist) {
+std::vector<uint8_t> ImageStretcher::convert_to_preview_8bit(
+    const core::Frame& frame,
+    Histogram* out_hist,
+    core::Frame* out_proc16
+) {
     if (!frame.is_valid()) return {};
 
     const int w = frame.width;
@@ -375,8 +379,15 @@ std::vector<uint8_t> ImageStretcher::convert_to_preview_8bit(const core::Frame& 
     float inv_range = 1.0f / (wp - bp);
     bool need_gamma = std::abs(gamma - 1.0f) > 0.01f;
 
-    // Build 16-bit to 8-bit LUT for ultra-fast O(1) per-pixel stretch + gamma
+    // Build 16-bit to 8-bit LUT (and optional 16-bit LUT) for ultra-fast O(1) per-pixel stretch + gamma
+    const bool apply_16bit_lut = out_proc16 != nullptr && config_.stretch_enabled &&
+                                 (config_.auto_stretch || bp > 0.5f || wp < 65534.5f || need_gamma || config_.invert_enabled);
     std::array<uint8_t, 65536> lut{};
+    std::vector<uint16_t> lut16;
+    if (apply_16bit_lut) {
+        lut16.resize(65536);
+    }
+
     for (int v = 0; v < 65536; ++v) {
         float norm = (static_cast<float>(v) - bp) * inv_range;
         norm = std::clamp(norm, 0.0f, 1.0f);
@@ -384,6 +395,40 @@ std::vector<uint8_t> ImageStretcher::convert_to_preview_8bit(const core::Frame& 
             norm = std::pow(norm, 1.0f / gamma); // gamma > 1 brightens midtones, matching SharpCap
         }
         lut[v] = static_cast<uint8_t>(norm * 255.0f + 0.5f);
+        if (apply_16bit_lut) {
+            float n16 = config_.invert_enabled ? (1.0f - norm) : norm;
+            lut16[v] = static_cast<uint16_t>(std::clamp(n16 * 65535.0f + 0.5f, 0.0f, 65535.0f));
+        }
+    }
+
+    // Populate out_proc16 if requested (for 16-bit FITS / TIFF captures)
+    if (out_proc16 && out_proc16->is_valid() && out_proc16->pixel_count() == count) {
+        uint16_t* dst16 = out_proc16->pixels.get();
+        if (apply_16bit_lut) {
+            for (size_t i = 0; i < count; ++i) {
+                dst16[i] = lut16[src[i]];
+            }
+        } else if (!work16.empty()) {
+            std::memcpy(dst16, work16.data(), count * sizeof(uint16_t));
+        }
+
+        if (config_.flip_mode > 0 && w >= 2 && h >= 2) {
+            const bool flip_h = (config_.flip_mode == 1 || config_.flip_mode == 3);
+            const bool flip_v = (config_.flip_mode == 2 || config_.flip_mode == 3);
+            std::vector<uint16_t> flipped16(count);
+            for (int y = 0; y < h; ++y) {
+                int sy = flip_v ? (h - 1 - y) : y;
+                for (int x = 0; x < w; ++x) {
+                    int sx = flip_h ? (w - 1 - x) : x;
+                    size_t dst_i = (static_cast<size_t>(y) * w + x) * ch;
+                    size_t src_i = (static_cast<size_t>(sy) * w + sx) * ch;
+                    for (int c_idx = 0; c_idx < ch; ++c_idx) {
+                        flipped16[dst_i + c_idx] = dst16[src_i + c_idx];
+                    }
+                }
+            }
+            std::memcpy(dst16, flipped16.data(), count * sizeof(uint16_t));
+        }
     }
 
     std::vector<uint8_t> dst(count);

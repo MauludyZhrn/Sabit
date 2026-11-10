@@ -41,6 +41,11 @@ private:
 
     std::vector<uint32_t> chunk_offsets_;
     std::vector<uint8_t> frame_buffer_;
+
+    // Windows Media Foundation H.264 Sink Writer state (opaque pointer)
+    void* mf_sink_writer_{nullptr};
+    uint32_t mf_stream_index_{0};
+    bool use_mf_h264_{false};
 };
 
 } // namespace sabit::imaging::io

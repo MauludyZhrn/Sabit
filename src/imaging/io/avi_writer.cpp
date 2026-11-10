@@ -163,9 +163,15 @@ core::Result<void> AviWriter::write_frame(const core::Frame& frame) {
     std::fill(frame_buffer_.begin(), frame_buffer_.end(), 0);
 
     const uint16_t* src_u16 = frame.pixels ? frame.pixels.get() : nullptr;
-    const uint8_t* src_u8 = reinterpret_cast<const uint8_t*>(src_u16);
-    bool is_16bit = (frame.bit_depth == 16);
-    int ch = frame.channels;
+    const bool is_16bit = (frame.bit_depth > 8);
+    const int ch = std::max(1, frame.channels);
+
+    auto sample_to_u8 = [is_16bit](uint16_t v) -> uint8_t {
+        if (is_16bit || v > 255) {
+            return static_cast<uint8_t>(v >> 8);
+        }
+        return static_cast<uint8_t>(v);
+    };
 
     for (int y = 0; y < height_; ++y) {
         int src_y = y; // Source row (top-to-bottom)
@@ -176,23 +182,14 @@ core::Result<void> AviWriter::write_frame(const core::Frame& frame) {
             uint8_t b = 0, g = 0, r = 0;
             size_t px_idx = (static_cast<size_t>(src_y) * static_cast<size_t>(width_) + static_cast<size_t>(x)) * static_cast<size_t>(ch);
 
-            if (is_16bit && src_u16) {
+            if (src_u16) {
                 if (ch == 1) {
-                    uint8_t val = static_cast<uint8_t>(src_u16[px_idx] >> 8);
+                    uint8_t val = sample_to_u8(src_u16[px_idx]);
                     b = g = r = val;
                 } else if (ch >= 3) {
-                    r = static_cast<uint8_t>(src_u16[px_idx + 0] >> 8);
-                    g = static_cast<uint8_t>(src_u16[px_idx + 1] >> 8);
-                    b = static_cast<uint8_t>(src_u16[px_idx + 2] >> 8);
-                }
-            } else if (src_u8) {
-                if (ch == 1) {
-                    uint8_t val = src_u8[px_idx];
-                    b = g = r = val;
-                } else if (ch >= 3) {
-                    r = src_u8[px_idx + 0];
-                    g = src_u8[px_idx + 1];
-                    b = src_u8[px_idx + 2];
+                    r = sample_to_u8(src_u16[px_idx + 0]);
+                    g = sample_to_u8(src_u16[px_idx + 1]);
+                    b = sample_to_u8(src_u16[px_idx + 2]);
                 }
             }
 

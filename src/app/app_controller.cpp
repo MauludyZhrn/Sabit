@@ -354,6 +354,9 @@ void AppController::set_master_flat(imaging::MasterFlat flat) {
 
 bool AppController::load_dark_file(const std::string& path) {
     auto res = imaging::io::FitsWriter::read_fits_16bit(path);
+    if (!res.is_ok()) {
+        res = imaging::io::ImageWriter::read_tiff_16bit(path);
+    }
     if (!res.is_ok()) return false;
     auto dark_res = imaging::CalibrationProcessor::create_master_dark({res.value()});
     if (!dark_res.is_ok()) return false;
@@ -364,6 +367,9 @@ bool AppController::load_dark_file(const std::string& path) {
 
 bool AppController::load_flat_file(const std::string& path) {
     auto res = imaging::io::FitsWriter::read_fits_16bit(path);
+    if (!res.is_ok()) {
+        res = imaging::io::ImageWriter::read_tiff_16bit(path);
+    }
     if (!res.is_ok()) return false;
     const imaging::MasterDark* dark_ptr = calibration_.master_dark().is_valid() ? &calibration_.master_dark() : nullptr;
     auto flat_res = imaging::CalibrationProcessor::create_master_flat({res.value()}, dark_ptr);
@@ -603,6 +609,9 @@ bool AppController::start_recording(const std::string& format, int count) {
         start_session(site_.name, "Hilal", "Sabit Observer");
     }
 
+    // Drain any stale queued frames before starting a new recording/snapshot
+    while (record_ring_buffer_.pop(std::chrono::milliseconds(0)).has_value()) {}
+
     record_format_ = format;
     target_record_count_.store(count);
     frames_recorded_.store(0);
@@ -656,11 +665,6 @@ void AppController::on_camera_frame(const core::Frame& frame) {
     }
 
     ++frames_captured_;
-
-    // Zero-latency decoupled recording: push directly to ring buffer without waiting for preview/AI/stacking
-    if (is_recording_.load()) {
-        record_ring_buffer_.push(frame);
-    }
 
     {
         std::lock_guard<std::mutex> lock(fps_mutex_);
@@ -742,12 +746,34 @@ void AppController::processing_worker() {
         imaging::Histogram hist{};
         {
             std::lock_guard<std::mutex> lock(stretcher_mutex_);
-            auto stretched8 = stretcher_.convert_to_preview_8bit(proc_frame, &hist);
+            auto stretched8 = stretcher_.convert_to_preview_8bit(proc_frame, &hist, &proc_frame);
             preview.stretch_black_pt = stretcher_.effective_black_norm();
             preview.stretch_white_pt = stretcher_.effective_white_norm();
             preview.stretch_gamma = stretcher_.effective_gamma();
             preview.stretch_enabled = stretcher_.config().stretch_enabled;
             preview.timestamp_frames = stretcher_.config().timestamp_frames;
+
+            if (is_recording_.load()) {
+                if (record_format_ == "png" || record_format_ == "jpg" || record_format_ == "jpeg" ||
+                    record_format_ == "avi" || record_format_ == "mp4") {
+                    core::Frame vis_frame = core::Frame::create_allocated(
+                        proc_frame.width, proc_frame.height, proc_frame.channels, 16);
+                    vis_frame.seq = proc_frame.seq;
+                    vis_frame.exposure_us = proc_frame.exposure_us;
+                    vis_frame.gain = proc_frame.gain;
+                    vis_frame.sensor_temp_c = proc_frame.sensor_temp_c;
+                    vis_frame.timestamp_utc = proc_frame.timestamp_utc;
+                    uint16_t* vdst = vis_frame.pixels.get();
+                    const size_t n = std::min(vis_frame.pixel_count(), stretched8.size());
+                    for (size_t i = 0; i < n; ++i) {
+                        uint16_t v = stretched8[i];
+                        vdst[i] = static_cast<uint16_t>((v << 8) | v);
+                    }
+                    record_ring_buffer_.push(vis_frame);
+                } else {
+                    record_ring_buffer_.push(proc_frame);
+                }
+            }
 
             if (proc_frame.channels >= 3) {
                 // Already 3-channel RGB — move directly without 3x grayscale replication!
@@ -790,11 +816,18 @@ void AppController::writer_worker() {
         const auto& frame = *opt_frame;
 
         if (is_recording_.load()) {
-            std::string ext = (record_format_ == "tiff" ? "tif" : (record_format_ == "png" ? "png" : "fits"));
+            std::string ext = "fits";
+            if (record_format_ == "tiff" || record_format_ == "tif") ext = "tif";
+            else if (record_format_ == "png") ext = "png";
+            else if (record_format_ == "jpg" || record_format_ == "jpeg") ext = "jpg";
+            else if (record_format_ == "avi") ext = "avi";
+            else if (record_format_ == "mp4") ext = "mp4";
             std::string filepath = session_.get_frame_filepath(ext, frame.seq);
 
             imaging::io::FitsMetadata meta;
             meta.object = session_.info().target;
+            meta.observer = session_.info().observer;
+            meta.instrument = camera_caps_.model.empty() ? session_.info().camera_model : camera_caps_.model;
             meta.site_latitude = site_.latitude;
             meta.site_longitude = site_.longitude;
             meta.site_elevation_m = site_.elevation_m;
@@ -824,10 +857,12 @@ void AppController::writer_worker() {
                 if (res.is_ok() && mp4_writer_ && mp4_writer_->is_open()) {
                     res = mp4_writer_->write_frame(frame);
                 }
-            } else if (record_format_ == "tiff") {
+            } else if (record_format_ == "tiff" || record_format_ == "tif") {
                 res = imaging::io::ImageWriter::write_tiff_16bit(filepath, frame);
-            } else if (record_format_ == "png" || record_format_ == "jpg") {
-                res = imaging::io::ImageWriter::write_pgm_16bit(filepath, frame);
+            } else if (record_format_ == "png") {
+                res = imaging::io::ImageWriter::write_png(filepath, frame);
+            } else if (record_format_ == "jpg" || record_format_ == "jpeg") {
+                res = imaging::io::ImageWriter::write_jpg(filepath, frame, 95);
             } else {
                 res = imaging::io::FitsWriter::write_fits_16bit(filepath, frame, meta);
             }

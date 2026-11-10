@@ -843,6 +843,7 @@ void MainWindow::setup_central_layout() {
         if (camera_panel_) camera_panel_->set_gamma_display(1.0);
         if (processing_panel_) processing_panel_->sync_stretch_ui(0.0, 1.0, false, false);
     });
+    connect(histogram_widget_, &HistogramWidget::save_requested, this, &MainWindow::on_snapshot_clicked);
 
     // ProcessingPanel SharpCap Reference Image 2 signals
     connect(processing_panel_, &ProcessingPanel::timestamp_frames_changed, this, [this](bool en) {
@@ -1654,7 +1655,8 @@ void MainWindow::on_snapshot_clicked() {
     if (fmt_str.startsWith(".")) fmt_str.remove(0, 1);
     std::string fmt = fmt_str.toLower().toStdString();
 
-    controller_.start_recording(fmt, 1);
+    int snap_count = (fmt == "mp4" || fmt == "avi") ? 30 : 1;
+    controller_.start_recording(fmt, snap_count);
     bool is_id = (Translator::instance().language() == Language::Indonesian);
     video_widget_->show_toast(QString(is_id ? "Tersimpan: Quick Capture %1" : "Saved: Quick Capture %1").arg(format_combo_->currentText().toUpper()));
 }

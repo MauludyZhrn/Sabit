@@ -554,12 +554,11 @@ void QhyCamera::camera_worker_loop() {
 
         if (ret == QHYCCD_SUCCESS_CODE && w > 0 && h > 0) {
             int out_ch = (channels == 3) ? 3 : 1;
-            int out_bd = (bpp == 8) ? 8 : 16;
             core::Frame frame = core::Frame::create_allocated(
                 static_cast<int>(w),
                 static_cast<int>(h),
                 out_ch,
-                out_bd
+                16
             );
             frame.seq = ++seq;
             frame.bayer = caps_.bayer;

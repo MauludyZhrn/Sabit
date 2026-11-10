@@ -105,11 +105,15 @@ core::Result<void> FitsWriter::write_fits_16bit(
     std::vector<std::string> cards;
     cards.reserve(36);
 
+    const int out_ch = (frame.channels >= 3) ? 3 : 1;
     cards.push_back(format_card_bool("SIMPLE", true, "file does conform to FITS standard"));
     cards.push_back(format_card_int("BITPIX", 16, "number of bits per data pixel"));
-    cards.push_back(format_card_int("NAXIS", 2, "number of data axes"));
+    cards.push_back(format_card_int("NAXIS", (out_ch == 3) ? 3 : 2, "number of data axes"));
     cards.push_back(format_card_int("NAXIS1", frame.width, "length of data axis 1 (width)"));
     cards.push_back(format_card_int("NAXIS2", frame.height, "length of data axis 2 (height)"));
+    if (out_ch == 3) {
+        cards.push_back(format_card_int("NAXIS3", 3, "length of data axis 3 (RGB planes)"));
+    }
     cards.push_back(format_card_int("BZERO", 32768, "offset data range to that of unsigned"));
     cards.push_back(format_card_int("BSCALE", 1, "default scaling factor"));
 
@@ -155,22 +159,48 @@ core::Result<void> FitsWriter::write_fits_16bit(
 
     // 2. Write Pixel Payload in Big-Endian Order
     // FITS requires unsigned 16-bit to be mapped to signed 16-bit by subtracting 32768
-    size_t num_pixels = frame.pixel_count();
+    const size_t plane_pixels = static_cast<size_t>(frame.width) * static_cast<size_t>(frame.height);
+    const size_t total_samples = plane_pixels * static_cast<size_t>(out_ch);
     const uint16_t* src_px = frame.pixels.get();
+    const uint8_t* src_u8 = reinterpret_cast<const uint8_t*>(src_px);
+    const bool is_8bit = (frame.bit_depth == 8);
+    const int src_ch = std::max(1, frame.channels);
 
-    size_t payload_bytes = num_pixels * sizeof(uint16_t);
+    size_t payload_bytes = total_samples * sizeof(uint16_t);
     size_t payload_blocks = (payload_bytes + kFitsBlockSize - 1) / kFitsBlockSize;
     size_t total_payload_bytes = payload_blocks * kFitsBlockSize;
 
     std::vector<char> byte_buffer(total_payload_bytes, 0);
 
-    for (size_t i = 0; i < num_pixels; ++i) {
-        uint16_t u_val = src_px[i];
-        int16_t s_val = static_cast<int16_t>(static_cast<int32_t>(u_val) - 32768);
+    if (out_ch == 3) {
+        // Standard 3D FITS RGB Cube: Plane 0 (R), Plane 1 (G), Plane 2 (B)
+        for (int c = 0; c < 3; ++c) {
+            size_t plane_offset = static_cast<size_t>(c) * plane_pixels;
+            for (size_t p = 0; p < plane_pixels; ++p) {
+                uint16_t u_val = 0;
+                if (is_8bit) {
+                    uint8_t v8 = src_u8[p * src_ch + std::min(c, src_ch - 1)];
+                    u_val = static_cast<uint16_t>((static_cast<uint16_t>(v8) << 8) | v8);
+                } else {
+                    u_val = src_px[p * src_ch + std::min(c, src_ch - 1)];
+                }
+                int16_t s_val = static_cast<int16_t>(static_cast<int32_t>(u_val) - 32768);
+                size_t out_idx = (plane_offset + p) * 2;
+                byte_buffer[out_idx + 0] = static_cast<char>((s_val >> 8) & 0xFF);
+                byte_buffer[out_idx + 1] = static_cast<char>(s_val & 0xFF);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < plane_pixels; ++i) {
+            uint16_t u_val = is_8bit
+                ? static_cast<uint16_t>((static_cast<uint16_t>(src_u8[i]) << 8) | src_u8[i])
+                : src_px[i];
+            int16_t s_val = static_cast<int16_t>(static_cast<int32_t>(u_val) - 32768);
 
-        // Big-Endian format (MSB first)
-        byte_buffer[i * 2 + 0] = static_cast<char>((s_val >> 8) & 0xFF);
-        byte_buffer[i * 2 + 1] = static_cast<char>(s_val & 0xFF);
+            // Big-Endian format (MSB first)
+            byte_buffer[i * 2 + 0] = static_cast<char>((s_val >> 8) & 0xFF);
+            byte_buffer[i * 2 + 1] = static_cast<char>(s_val & 0xFF);
+        }
     }
 
     ofs.write(byte_buffer.data(), byte_buffer.size());
@@ -200,8 +230,10 @@ core::Result<core::Frame> FitsWriter::read_fits_16bit(const std::string& file_pa
         return core::Result<core::Frame>::err(core::ErrorCode::NotFound, "Failed to open FITS file: " + file_path);
     }
 
+    int naxis = 2;
     int width = 0;
     int height = 0;
+    int naxis3 = 1;
     int bitpix = 0;
     int32_t bzero = 0;
     int64_t exposure_us = 0;
@@ -233,8 +265,10 @@ core::Result<core::Frame> FitsWriter::read_fits_16bit(const std::string& file_pa
                 val_part.erase(0, val_part.find_first_not_of(" '"));
                 val_part.erase(val_part.find_last_not_of(" '") + 1);
 
-                if (key == "NAXIS1") width = std::stoi(val_part);
+                if (key == "NAXIS") naxis = std::stoi(val_part);
+                else if (key == "NAXIS1") width = std::stoi(val_part);
                 else if (key == "NAXIS2") height = std::stoi(val_part);
+                else if (key == "NAXIS3") naxis3 = std::stoi(val_part);
                 else if (key == "BITPIX") bitpix = std::stoi(val_part);
                 else if (key == "BZERO") bzero = std::stoi(val_part);
                 else if (key == "EXPTIME") exposure_us = static_cast<int64_t>(std::stod(val_part) * 1000000.0);
@@ -252,32 +286,48 @@ core::Result<core::Frame> FitsWriter::read_fits_16bit(const std::string& file_pa
         }
     }
 
+    const int channels = (naxis >= 3 && naxis3 >= 3) ? 3 : 1;
     if (width <= 0 || height <= 0 || bitpix != 16) {
         return core::Result<core::Frame>::err(core::ErrorCode::SerializationError, "Invalid FITS header dimensions or BITPIX");
     }
-    if (!core::frame_bytes(width, height, 1, 2).has_value()) {
+    if (!core::frame_bytes(width, height, channels, 2).has_value()) {
         return core::Result<core::Frame>::err(core::ErrorCode::SerializationError, "FITS dimensions exceed safe allocation limit");
     }
 
-    core::Frame frame = core::Frame::create_allocated(width, height, 1, 16);
+    core::Frame frame = core::Frame::create_allocated(width, height, channels, 16);
     frame.exposure_us = exposure_us;
     frame.gain = gain;
     frame.sensor_temp_c = ccd_temp;
     frame.binning = binning;
     frame.timestamp_utc = time_obs;
 
-    size_t num_pixels = static_cast<size_t>(width) * height;
-    std::vector<char> raw_bytes(num_pixels * 2);
-    ifs.read(raw_bytes.data(), num_pixels * 2);
+    const size_t plane_pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+    const size_t total_samples = plane_pixels * static_cast<size_t>(channels);
+    std::vector<char> raw_bytes(total_samples * 2);
+    ifs.read(raw_bytes.data(), static_cast<std::streamsize>(total_samples * 2));
 
     uint16_t* dst = frame.pixels.get();
-    for (size_t i = 0; i < num_pixels; ++i) {
-        uint8_t b0 = static_cast<uint8_t>(raw_bytes[i * 2 + 0]);
-        uint8_t b1 = static_cast<uint8_t>(raw_bytes[i * 2 + 1]);
-        int16_t s_val = static_cast<int16_t>((static_cast<uint16_t>(b0) << 8) | b1);
+    if (channels == 3) {
+        for (int c = 0; c < 3; ++c) {
+            size_t plane_offset = static_cast<size_t>(c) * plane_pixels;
+            for (size_t p = 0; p < plane_pixels; ++p) {
+                size_t in_idx = (plane_offset + p) * 2;
+                uint8_t b0 = static_cast<uint8_t>(raw_bytes[in_idx + 0]);
+                uint8_t b1 = static_cast<uint8_t>(raw_bytes[in_idx + 1]);
+                int16_t s_val = static_cast<int16_t>((static_cast<uint16_t>(b0) << 8) | b1);
+                uint16_t u_val = static_cast<uint16_t>(static_cast<int32_t>(s_val) + bzero);
+                dst[p * 3 + c] = u_val;
+            }
+        }
+    } else {
+        for (size_t i = 0; i < plane_pixels; ++i) {
+            uint8_t b0 = static_cast<uint8_t>(raw_bytes[i * 2 + 0]);
+            uint8_t b1 = static_cast<uint8_t>(raw_bytes[i * 2 + 1]);
+            int16_t s_val = static_cast<int16_t>((static_cast<uint16_t>(b0) << 8) | b1);
 
-        uint16_t u_val = static_cast<uint16_t>(static_cast<int32_t>(s_val) + bzero);
-        dst[i] = u_val;
+            uint16_t u_val = static_cast<uint16_t>(static_cast<int32_t>(s_val) + bzero);
+            dst[i] = u_val;
+        }
     }
 
     if (out_meta) {

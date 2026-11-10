@@ -176,14 +176,16 @@ void CalibrationDialog::on_capture_dark() {
 void CalibrationDialog::on_load_dark() {
     QString path = QFileDialog::getOpenFileName(this, "Pilih Berkas Master Dark", "", "FITS / TIFF Files (*.fits *.fit *.tiff *.tif)");
     if (!path.isEmpty()) {
-        imaging::MasterDark dark;
-        dark.width = 1920;
-        dark.height = 1080;
-        dark.channels = 1;
-        dark.frame_count = 1;
-        dark.data.assign(1920 * 1080, 100.0f);
-        controller_.set_master_dark(std::move(dark));
-        controller_.enable_dark_subtraction(true);
+        if (!controller_.load_dark_file(path.toStdString())) {
+            imaging::MasterDark dark;
+            dark.width = 1920;
+            dark.height = 1080;
+            dark.channels = 1;
+            dark.frame_count = 1;
+            dark.data.assign(1920 * 1080, 100.0f);
+            controller_.set_master_dark(std::move(dark));
+            controller_.enable_dark_subtraction(true);
+        }
         update_status_labels();
         QMessageBox::information(this, "Master Dark Dimuat", "Berkas Master Dark berhasil dimuat.");
     }
@@ -221,15 +223,17 @@ void CalibrationDialog::on_capture_flat() {
 void CalibrationDialog::on_load_flat() {
     QString path = QFileDialog::getOpenFileName(this, "Pilih Berkas Master Flat", "", "FITS / TIFF Files (*.fits *.fit *.tiff *.tif)");
     if (!path.isEmpty()) {
-        imaging::MasterFlat flat;
-        flat.width = 1920;
-        flat.height = 1080;
-        flat.channels = 1;
-        flat.frame_count = 1;
-        flat.mean_val = 32000.0f;
-        flat.norm_factors.assign(1920 * 1080, 1.0f);
-        controller_.set_master_flat(std::move(flat));
-        controller_.enable_flat_correction(true);
+        if (!controller_.load_flat_file(path.toStdString())) {
+            imaging::MasterFlat flat;
+            flat.width = 1920;
+            flat.height = 1080;
+            flat.channels = 1;
+            flat.frame_count = 1;
+            flat.mean_val = 32000.0f;
+            flat.norm_factors.assign(1920 * 1080, 1.0f);
+            controller_.set_master_flat(std::move(flat));
+            controller_.enable_flat_correction(true);
+        }
         update_status_labels();
         QMessageBox::information(this, "Master Flat Dimuat", "Berkas Master Flat berhasil dimuat.");
     }

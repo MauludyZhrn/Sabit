@@ -131,6 +131,51 @@ void test_image_writer_tiff_and_pgm() {
     Frame loaded_pgm = pgm_r.value();
     TEST_ASSERT(loaded_pgm.pixels[100] == f.pixels[100], "PGM pixel match");
     std::filesystem::remove(pgm_path);
+
+    // 3-channel RGB FITS and TIFF roundtrip test
+    Frame rgb = Frame::create_allocated(64, 48, 3, 16);
+    for (size_t i = 0; i < static_cast<size_t>(64 * 48); ++i) {
+        rgb.pixels[i * 3 + 0] = static_cast<uint16_t>(1000 + (i % 500) * 10);
+        rgb.pixels[i * 3 + 1] = static_cast<uint16_t>(20000 + (i % 500) * 20);
+        rgb.pixels[i * 3 + 2] = static_cast<uint16_t>(40000 + (i % 500) * 30);
+    }
+
+    std::string rgb_fits_path = "test_rgb.fits";
+    FitsMetadata rgb_meta;
+    rgb_meta.object = "RGB Hilal";
+    auto rf_w = FitsWriter::write_fits_16bit(rgb_fits_path, rgb, rgb_meta);
+    TEST_ASSERT(rf_w.is_ok(), "3-channel RGB FITS write should succeed");
+    auto rf_r = FitsWriter::read_fits_16bit(rgb_fits_path);
+    TEST_ASSERT(rf_r.is_ok(), "3-channel RGB FITS read should succeed");
+    TEST_ASSERT(rf_r.value().channels == 3, "3-channel FITS should restore channels=3");
+    TEST_ASSERT(rf_r.value().pixels[15 * 3 + 0] == rgb.pixels[15 * 3 + 0], "RGB FITS Red channel match");
+    TEST_ASSERT(rf_r.value().pixels[15 * 3 + 1] == rgb.pixels[15 * 3 + 1], "RGB FITS Green channel match");
+    TEST_ASSERT(rf_r.value().pixels[15 * 3 + 2] == rgb.pixels[15 * 3 + 2], "RGB FITS Blue channel match");
+    std::filesystem::remove(rgb_fits_path);
+
+    std::string rgb_tiff_path = "test_rgb.tif";
+    auto rt_w = ImageWriter::write_tiff_16bit(rgb_tiff_path, rgb);
+    TEST_ASSERT(rt_w.is_ok(), "3-channel RGB TIFF write should succeed");
+    auto rt_r = ImageWriter::read_tiff_16bit(rgb_tiff_path);
+    TEST_ASSERT(rt_r.is_ok(), "3-channel RGB TIFF read should succeed");
+    TEST_ASSERT(rt_r.value().channels == 3, "3-channel TIFF should restore channels=3");
+    TEST_ASSERT(rt_r.value().pixels[25 * 3 + 0] == rgb.pixels[25 * 3 + 0], "RGB TIFF Red channel match");
+    TEST_ASSERT(rt_r.value().pixels[25 * 3 + 1] == rgb.pixels[25 * 3 + 1], "RGB TIFF Green channel match");
+    TEST_ASSERT(rt_r.value().pixels[25 * 3 + 2] == rgb.pixels[25 * 3 + 2], "RGB TIFF Blue channel match");
+    std::filesystem::remove(rgb_tiff_path);
+
+    // PNG & JPEG test
+    std::string png_path = "test_rgb.png";
+    auto png_res = ImageWriter::write_png(png_path, rgb);
+    TEST_ASSERT(png_res.is_ok(), "PNG write should succeed");
+    TEST_ASSERT(std::filesystem::exists(png_path) && std::filesystem::file_size(png_path) > 100, "PNG file should exist");
+    std::filesystem::remove(png_path);
+
+    std::string jpg_path = "test_rgb.jpg";
+    auto jpg_res = ImageWriter::write_jpg(jpg_path, rgb, 92);
+    TEST_ASSERT(jpg_res.is_ok(), "JPEG write should succeed");
+    TEST_ASSERT(std::filesystem::exists(jpg_path) && std::filesystem::file_size(jpg_path) > 100, "JPEG file should exist");
+    std::filesystem::remove(jpg_path);
 }
 
 // 3. TC-025 & TC-026: Calibration Dark Clamping and Flat Vignetting Flattening

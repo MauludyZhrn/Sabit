@@ -3,6 +3,14 @@
 #include <algorithm>
 #include <cstring>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
+#include <mferror.h>
+#endif
+
 namespace sabit::imaging::io {
 
 static inline void write_be32(std::vector<uint8_t>& buf, uint32_t val) {
@@ -58,16 +66,90 @@ core::Result<void> Mp4Writer::open(const std::string& file_path, int width, int 
         return core::Result<void>::err(core::ErrorCode::SerializationError, std::string("Gagal membuat direktori MP4: ") + e.what());
     }
 
-    file_.open(file_path, std::ios::binary | std::ios::out | std::ios::trunc);
-    if (!file_.is_open()) {
-        return core::Result<void>::err(core::ErrorCode::SerializationError, "Gagal membuka file MP4 untuk penulisan");
-    }
-
     file_path_ = file_path;
     width_ = width;
     height_ = height;
     fps_ = (fps > 0.0) ? fps : 30.0;
     frame_count_ = 0;
+    use_mf_h264_ = false;
+    mf_sink_writer_ = nullptr;
+
+#ifdef _WIN32
+    // Use Windows Media Foundation H.264 Sink Writer for standard video resolutions (>= 64x64, even dimensions)
+    if (width_ >= 64 && height_ >= 64 && (width_ % 2 == 0) && (height_ % 2 == 0)) {
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (SUCCEEDED(MFStartup(MF_VERSION))) {
+            std::wstring wpath = std::filesystem::path(file_path).wstring();
+            IMFAttributes* attrs = nullptr;
+            MFCreateAttributes(&attrs, 2);
+            if (attrs) {
+                attrs->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+            }
+
+            IMFSinkWriter* sink = nullptr;
+            HRESULT hr = MFCreateSinkWriterFromURL(wpath.c_str(), nullptr, attrs, &sink);
+            if (attrs) attrs->Release();
+
+            if (SUCCEEDED(hr) && sink) {
+                IMFMediaType* type_out = nullptr;
+                IMFMediaType* type_in = nullptr;
+                DWORD stream_idx = 0;
+                bool ok = false;
+
+                if (SUCCEEDED(MFCreateMediaType(&type_out))) {
+                    uint32_t fps_num = static_cast<uint32_t>(std::clamp(fps_ * 1000.0, 1000.0, 120000.0));
+                    uint32_t bitrate = static_cast<uint32_t>(std::clamp(
+                        static_cast<double>(width_) * height_ * fps_ * 0.35, 1500000.0, 25000000.0));
+
+                    type_out->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+                    type_out->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
+                    type_out->SetUINT32(MF_MT_AVG_BITRATE, bitrate);
+                    type_out->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+                    MFSetAttributeSize(type_out, MF_MT_FRAME_SIZE, static_cast<UINT32>(width_), static_cast<UINT32>(height_));
+                    MFSetAttributeRatio(type_out, MF_MT_FRAME_RATE, fps_num, 1000);
+                    MFSetAttributeRatio(type_out, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+
+                    if (SUCCEEDED(sink->AddStream(type_out, &stream_idx))) {
+                        if (SUCCEEDED(MFCreateMediaType(&type_in))) {
+                            type_in->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+                            type_in->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+                            type_in->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+                            MFSetAttributeSize(type_in, MF_MT_FRAME_SIZE, static_cast<UINT32>(width_), static_cast<UINT32>(height_));
+                            MFSetAttributeRatio(type_in, MF_MT_FRAME_RATE, fps_num, 1000);
+                            MFSetAttributeRatio(type_in, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+
+                            if (SUCCEEDED(sink->SetInputMediaType(stream_idx, type_in, nullptr)) &&
+                                SUCCEEDED(sink->BeginWriting())) {
+                                ok = true;
+                            }
+                            type_in->Release();
+                        }
+                    }
+                    type_out->Release();
+                }
+
+                if (ok) {
+                    mf_sink_writer_ = sink;
+                    mf_stream_index_ = stream_idx;
+                    use_mf_h264_ = true;
+                    is_open_ = true;
+                    return core::Result<void>::ok();
+                } else {
+                    sink->Release();
+                    std::error_code ec;
+                    std::filesystem::remove(file_path, ec);
+                }
+            }
+        }
+    }
+#endif
+
+    // Fallback: ISO Base Media File Format (MP4) raw box writer (supports small test dimensions like 32x32)
+    file_.open(file_path, std::ios::binary | std::ios::out | std::ios::trunc);
+    if (!file_.is_open()) {
+        return core::Result<void>::err(core::ErrorCode::SerializationError, "Gagal membuka file MP4 untuk penulisan");
+    }
+
     frame_data_size_ = static_cast<uint32_t>(width_ * height_ * 3);
     frame_buffer_.assign(frame_data_size_, 0);
     chunk_offsets_.clear();
@@ -100,29 +182,86 @@ core::Result<void> Mp4Writer::write_frame(const core::Frame& frame) {
     }
 
     const uint16_t* src_u16 = frame.pixels ? frame.pixels.get() : nullptr;
-    const uint8_t* src_u8 = reinterpret_cast<const uint8_t*>(src_u16);
-    bool is_16bit = (frame.bit_depth == 16);
-    int ch = frame.channels;
+    const bool is_16bit = (frame.bit_depth > 8);
+    const int ch = std::max(1, frame.channels);
+
+    auto sample_to_u8 = [is_16bit](uint16_t v) -> uint8_t {
+        if (is_16bit || v > 255) {
+            return static_cast<uint8_t>(v >> 8);
+        }
+        return static_cast<uint8_t>(v);
+    };
+
+#ifdef _WIN32
+    if (use_mf_h264_ && mf_sink_writer_) {
+        auto* sink = static_cast<IMFSinkWriter*>(mf_sink_writer_);
+        const DWORD cb_width = static_cast<DWORD>(width_) * 4;
+        const DWORD cb_buffer = cb_width * static_cast<DWORD>(height_);
+
+        IMFMediaBuffer* media_buf = nullptr;
+        if (FAILED(MFCreateMemoryBuffer(cb_buffer, &media_buf)) || !media_buf) {
+            return core::Result<void>::err(core::ErrorCode::HardwareError, "MFCreateMemoryBuffer failed");
+        }
+
+        BYTE* dst_data = nullptr;
+        if (SUCCEEDED(media_buf->Lock(&dst_data, nullptr, nullptr)) && dst_data && src_u16) {
+            // Media Foundation RGB32 expects bottom-up DIB layout by default: B, G, R, A
+            for (int y = 0; y < height_; ++y) {
+                int dst_y = height_ - 1 - y;
+                uint8_t* dst_row = dst_data + static_cast<size_t>(dst_y) * cb_width;
+                for (int x = 0; x < width_; ++x) {
+                    size_t px_idx = (static_cast<size_t>(y) * width_ + x) * ch;
+                    uint8_t r = 0, g = 0, b = 0;
+                    if (ch == 1) {
+                        r = g = b = sample_to_u8(src_u16[px_idx]);
+                    } else {
+                        r = sample_to_u8(src_u16[px_idx + 0]);
+                        g = sample_to_u8(src_u16[px_idx + 1]);
+                        b = sample_to_u8(src_u16[px_idx + 2]);
+                    }
+                    dst_row[x * 4 + 0] = b;
+                    dst_row[x * 4 + 1] = g;
+                    dst_row[x * 4 + 2] = r;
+                    dst_row[x * 4 + 3] = 255;
+                }
+            }
+            media_buf->Unlock();
+            media_buf->SetCurrentLength(cb_buffer);
+        }
+
+        IMFSample* sample = nullptr;
+        HRESULT hr = MFCreateSample(&sample);
+        if (SUCCEEDED(hr) && sample) {
+            LONGLONG duration_100ns = static_cast<LONGLONG>(10000000.0 / fps_);
+            LONGLONG rt_start = static_cast<LONGLONG>(frame_count_) * duration_100ns;
+            sample->AddBuffer(media_buf);
+            sample->SetSampleTime(rt_start);
+            sample->SetSampleDuration(duration_100ns);
+            hr = sink->WriteSample(mf_stream_index_, sample);
+            sample->Release();
+        }
+        media_buf->Release();
+
+        if (FAILED(hr)) {
+            return core::Result<void>::err(core::ErrorCode::HardwareError, "Failed to write H.264 sample to MP4");
+        }
+        ++frame_count_;
+        return core::Result<void>::ok();
+    }
+#endif
+
     size_t total_px = static_cast<size_t>(width_) * static_cast<size_t>(height_);
 
     for (size_t i = 0; i < total_px; ++i) {
         uint8_t r = 0, g = 0, b = 0;
         size_t px_idx = i * static_cast<size_t>(ch);
-        if (is_16bit && src_u16) {
+        if (src_u16) {
             if (ch == 1) {
-                r = g = b = static_cast<uint8_t>(src_u16[px_idx] >> 8);
+                r = g = b = sample_to_u8(src_u16[px_idx]);
             } else if (ch >= 3) {
-                r = static_cast<uint8_t>(src_u16[px_idx + 0] >> 8);
-                g = static_cast<uint8_t>(src_u16[px_idx + 1] >> 8);
-                b = static_cast<uint8_t>(src_u16[px_idx + 2] >> 8);
-            }
-        } else if (src_u8) {
-            if (ch == 1) {
-                r = g = b = src_u8[px_idx];
-            } else if (ch >= 3) {
-                r = src_u8[px_idx + 0];
-                g = src_u8[px_idx + 1];
-                b = src_u8[px_idx + 2];
+                r = sample_to_u8(src_u16[px_idx + 0]);
+                g = sample_to_u8(src_u16[px_idx + 1]);
+                b = sample_to_u8(src_u16[px_idx + 2]);
             }
         }
         frame_buffer_[i * 3 + 0] = r;
@@ -141,6 +280,18 @@ core::Result<void> Mp4Writer::write_frame(const core::Frame& frame) {
 
 void Mp4Writer::close() {
     if (!is_open_) return;
+
+#ifdef _WIN32
+    if (use_mf_h264_ && mf_sink_writer_) {
+        auto* sink = static_cast<IMFSinkWriter*>(mf_sink_writer_);
+        sink->Finalize();
+        sink->Release();
+        mf_sink_writer_ = nullptr;
+        use_mf_h264_ = false;
+        is_open_ = false;
+        return;
+    }
+#endif
 
     std::streampos mdat_end = file_.tellp();
     uint32_t mdat_size = static_cast<uint32_t>(static_cast<std::streamoff>(mdat_end) - static_cast<std::streamoff>(pos_mdat_size_));

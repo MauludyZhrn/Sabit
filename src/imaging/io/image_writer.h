@@ -34,6 +34,26 @@ public:
      * Atomically writes an 8-bit PPM/PGM image from 8-bit preview data.
      */
     static core::Result<void> write_ppm_8bit(const std::string& file_path, int width, int height, int channels, const uint8_t* data);
+
+    /**
+     * Atomically writes a standard lossless 8-bit PNG image (grayscale or RGB).
+     */
+    static core::Result<void> write_png_8bit(const std::string& file_path, int width, int height, int channels, const uint8_t* data);
+
+    /**
+     * Atomically writes a Frame as a standard PNG image.
+     */
+    static core::Result<void> write_png(const std::string& file_path, const core::Frame& frame);
+
+    /**
+     * Atomically writes a standard baseline JFIF JPEG image (grayscale or 4:4:4 RGB).
+     */
+    static core::Result<void> write_jpg_8bit(const std::string& file_path, int width, int height, int channels, const uint8_t* data, int quality = 92);
+
+    /**
+     * Atomically writes a Frame as a standard JPEG image.
+     */
+    static core::Result<void> write_jpg(const std::string& file_path, const core::Frame& frame, int quality = 92);
 };
 
 } // namespace sabit::imaging::io

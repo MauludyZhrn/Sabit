@@ -23,4 +23,14 @@ target_link_libraries(sabit_imaging PUBLIC
     sabit_core
 )
 
+if(WIN32)
+    target_link_libraries(sabit_imaging PUBLIC
+        mf
+        mfplat
+        mfreadwrite
+        mfuuid
+        ole32
+    )
+endif()
+
 target_compile_features(sabit_imaging PUBLIC cxx_std_20)
