@@ -51,6 +51,8 @@ add_library(sabit_ui STATIC
     dialogs/session_summary_dialog.cpp
     dialogs/export_dialog.h
     dialogs/export_dialog.cpp
+    dialogs/configure_capture_dialog.h
+    dialogs/configure_capture_dialog.cpp
     main_window.h
     main_window.cpp
 )

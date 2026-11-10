@@ -38,6 +38,9 @@ private slots:
     void on_record_clicked();
     void on_stop_clicked();
     void on_snapshot_clicked();
+    void on_configure_capture_clicked();
+    void on_set_capture_folder_clicked();
+    void on_target_name_changed(const QString& name);
     void on_delete_capture_clicked();
     void on_plate_solve_clicked();
     void on_export_pdf_clicked();
@@ -98,6 +101,7 @@ private:
     QPushButton* reset_btn_{nullptr};
 
     // Toolbar Labels
+    QLabel* lbl_target_{nullptr};
     QLabel* lbl_limit_{nullptr};
     QLabel* lbl_fmt_{nullptr};
     QLabel* lbl_zoom_{nullptr};
@@ -116,6 +120,7 @@ private:
     SabitStatusBar* status_bar_{nullptr};
 
     // Toolbar Controls
+    QComboBox* target_combo_{nullptr};
     QToolButton* btn_quick_capture_{nullptr};
     QToolButton* btn_record_{nullptr};
     QToolButton* btn_stop_{nullptr};
@@ -143,6 +148,8 @@ private:
     QAction* act_export_diag_{nullptr};
     QAction* act_exit_{nullptr};
 
+    QAction* act_configure_capture_{nullptr};
+    QAction* act_set_captures_folder_{nullptr};
     QAction* act_snapshot_{nullptr};
     QAction* act_delete_capture_{nullptr};
     QAction* act_record_{nullptr};

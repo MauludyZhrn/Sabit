@@ -366,9 +366,16 @@ ProcessingPanel::ProcessingPanel(QWidget* parent) : QWidget(parent) {
 
     auto on_manual_slider = [this]() {
         if (updating_ui_) return;
-        double bp = black_slider_->value() / 1000.0;
-        double wp = white_slider_->value() / 1000.0;
-        if (bp >= wp) wp = bp + 0.001;
+        int b_val = black_slider_->value();
+        int w_val = white_slider_->value();
+        if (b_val >= w_val) {
+            w_val = std::min(1000, b_val + 10);
+            updating_ui_ = true;
+            white_slider_->setValue(w_val);
+            updating_ui_ = false;
+        }
+        double bp = b_val / 1000.0;
+        double wp = w_val / 1000.0;
         b_lbl_->setText(QString("%1 %2%").arg(tr_str("black_point")).arg(static_cast<int>(bp * 100.0)));
         w_lbl_->setText(QString("%1 %2%").arg(tr_str("white_point")).arg(static_cast<int>(wp * 100.0)));
         emit manual_stretch_changed(bp, wp);
@@ -451,6 +458,69 @@ imaging::StackMethod ProcessingPanel::current_stack_method() const {
 
 bool ProcessingPanel::is_align_enabled() const {
     return align_chk_ ? align_chk_->isChecked() : true;
+}
+
+void ProcessingPanel::reset_to_defaults() {
+    updating_ui_ = true;
+
+    // Reset Image Controls & Preprocessing
+    if (timestamp_combo_) timestamp_combo_->setCurrentIndex(0);
+    if (dark_combo_) dark_combo_->setCurrentIndex(0);
+    if (flat_combo_) flat_combo_->setCurrentIndex(0);
+    if (banding_slider_) banding_slider_->setValue(0);
+    if (banding_spin_) banding_spin_->setValue(0);
+    if (planet_stab_combo_) planet_stab_combo_->setCurrentIndex(0);
+    if (bg_sub_combo_) bg_sub_combo_->setCurrentIndex(0);
+    if (sat_trails_combo_) sat_trails_combo_->setCurrentIndex(0);
+    if (flip_combo_) flip_combo_->setCurrentIndex(0);
+    if (mask_overexp_combo_) mask_overexp_combo_->setCurrentIndex(0);
+    if (ca_red_combo_) ca_red_combo_->setCurrentIndex(0);
+
+    // Reset Stretch
+    if (auto_stretch_chk_) auto_stretch_chk_->setChecked(false);
+    if (black_slider_) {
+        black_slider_->setEnabled(true);
+        black_slider_->setValue(0);
+    }
+    if (white_slider_) {
+        white_slider_->setEnabled(true);
+        white_slider_->setValue(1000);
+    }
+    if (b_lbl_) b_lbl_->setText(QString("%1 0%").arg(tr_str("black_point")));
+    if (w_lbl_) w_lbl_->setText(QString("%1 100%").arg(tr_str("white_point")));
+
+    // Reset Enhancements
+    if (clahe_chk_) clahe_chk_->setChecked(false);
+    if (sharpen_chk_) sharpen_chk_->setChecked(false);
+    if (invert_chk_) invert_chk_->setChecked(false);
+
+    // Reset Stacking
+    if (stacking_chk_) stacking_chk_->setChecked(false);
+    if (align_chk_) align_chk_->setChecked(true);
+    if (stack_method_combo_) stack_method_combo_->setCurrentIndex(0);
+
+    updating_ui_ = false;
+
+    // Emit reset signals
+    emit timestamp_frames_changed(false);
+    emit dark_subtraction_enabled(false);
+    emit flat_correction_enabled(false);
+    emit banding_suppression_changed(0);
+    emit planet_stabilization_changed(false);
+    emit background_subtraction_changed(0);
+    emit remove_satellite_trails_changed(false);
+    emit flip_mode_changed(0);
+    emit mask_over_exposed_changed(false);
+    emit ca_reduction_changed(false);
+    emit auto_stretch_toggled(false);
+    emit manual_stretch_changed(0.0, 1.0);
+    emit clahe_toggled(false);
+    emit sharpen_toggled(false);
+    emit invert_toggled(false);
+    emit stacking_toggled(false);
+    emit stack_align_toggled(true);
+    emit stack_method_changed(imaging::StackMethod::Mean);
+    emit reset_stack_clicked();
 }
 
 void ProcessingPanel::retranslate_ui() {

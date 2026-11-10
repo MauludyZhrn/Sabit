@@ -604,9 +604,34 @@ std::vector<detect::Detection> AppController::get_latest_overlay(int64_t max_age
     return detector_.get_latest_overlay(max_age_ms);
 }
 
-bool AppController::start_recording(const std::string& format, int count) {
-    if (!session_.is_active()) {
-        start_session(site_.name, "Hilal", "Sabit Observer");
+void AppController::set_captures_dir(const std::string& dir) {
+    if (!dir.empty()) {
+        captures_dir_ = dir;
+    }
+}
+
+std::string AppController::captures_dir() const {
+    return captures_dir_;
+}
+
+void AppController::set_active_target(const std::string& target) {
+    active_target_ = target.empty() ? "Hilal" : target;
+}
+
+std::string AppController::active_target() const {
+    return active_target_.empty() ? "Hilal" : active_target_;
+}
+
+bool AppController::start_recording(const std::string& format, int count, const std::string& target_override) {
+    std::string target = target_override.empty() ? active_target() : target_override;
+    if (target.empty()) target = "Hilal";
+
+    // Auto-switch / restart session if session is inactive or if target changed
+    if (!session_.is_active() || session_.info().target != target) {
+        if (session_.is_active()) {
+            end_session();
+        }
+        start_session(site_.name, target, "Sabit Observer");
     }
 
     // Drain any stale queued frames before starting a new recording/snapshot
@@ -619,7 +644,7 @@ bool AppController::start_recording(const std::string& format, int count) {
     update_power_management(true);
 
     last_manifest_write_time_ = std::chrono::steady_clock::now();
-    session_.log_event("Recording started: format=" + format + ", target_count=" + std::to_string(count));
+    session_.log_event("Recording started: target=" + target + ", format=" + format + ", target_count=" + std::to_string(count));
 
     return true;
 }

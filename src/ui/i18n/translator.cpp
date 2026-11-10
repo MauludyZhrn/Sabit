@@ -192,7 +192,19 @@ void Translator::init_dictionary() {
         {"stack_align", "Penyelarasan Gerak (Phase Correlation)"},
         {"stack_align_tip", "Koreksi otomatis pergeseran citra hilal menggunakan 2D FFT Phase Correlation sebelum stacking"},
         {"open_capture_folder", "Buka Folder Tangkapan"},
-        {"open_detection_log", "Buka Log CSV Deteksi AI"}
+        {"open_detection_log", "Buka Log CSV Deteksi AI"},
+        {"target_name", "Target Name:"},
+        {"configure_capture", "Konfigurasi Perekaman"},
+        {"capture_limit", "Batas Perekaman"},
+        {"single_frame", "Satu Frame"},
+        {"time_limit", "Batas Waktu"},
+        {"simple_sequence", "Urutan Perekaman"},
+        {"seq_captures", "Lakukan Urutan Perekaman"},
+        {"seq_length", "Panjang Urutan:"},
+        {"seq_interval", "Jeda Antar Perekaman (JJ:MM:DD):"},
+        {"capture_folder", "Direktori Penyimpanan Tangkapan"},
+        {"select_capture_folder", "Pilih Folder Penyimpanan Tangkapan"},
+        {"set_capture_folder", "Atur Folder Penyimpanan..."}
     };
 
     // English dictionary
@@ -371,7 +383,19 @@ void Translator::init_dictionary() {
         {"stack_align", "Motion Alignment (Phase Correlation)"},
         {"stack_align_tip", "Automatically align drifting crescent frames via 2D FFT Phase Correlation before stacking"},
         {"open_capture_folder", "Open Capture Folder"},
-        {"open_detection_log", "Open AI Detection CSV Log"}
+        {"open_detection_log", "Open AI Detection CSV Log"},
+        {"target_name", "Target Name:"},
+        {"configure_capture", "Configure Capture"},
+        {"capture_limit", "Select Capture Limit"},
+        {"single_frame", "Single Frame"},
+        {"time_limit", "Time Limit"},
+        {"simple_sequence", "Simple Sequence"},
+        {"seq_captures", "Perform a Sequence of Captures"},
+        {"seq_length", "Sequence Length:"},
+        {"seq_interval", "Interval between Captures (HH:MM:SS):"},
+        {"capture_folder", "Capture Storage Directory"},
+        {"select_capture_folder", "Select Captures Directory"},
+        {"set_capture_folder", "Set Capture Directory..."}
     };
 }
 

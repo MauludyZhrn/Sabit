@@ -18,6 +18,7 @@
 #include "src/ui/fluent/fluent_badge.h"
 #include "src/ui/widgets/marquee_label.h"
 #include "src/ui/main_window.h"
+#include "src/ui/dialogs/configure_capture_dialog.h"
 
 using namespace sabit;
 
@@ -245,6 +246,42 @@ void test_ui_offscreen_lifecycle(int argc, char** argv) {
 
     controller.disconnect_camera();
     std::cout << "  PASS: SharpCap controls & enumeration verified." << std::endl;
+
+    // Test 7: Target Name, Configure Capture Dialog & Custom Storage Directory
+    std::cout << "[Test 7] Target Name & Configure Capture Dialog..." << std::endl;
+    controller.set_active_target("Moon");
+    TEST_CHECK(controller.active_target() == "Moon", "Active target should be Moon");
+
+    controller.set_captures_dir("Captures_TargetTest");
+    TEST_CHECK(controller.captures_dir() == "Captures_TargetTest", "Captures dir should be Captures_TargetTest");
+
+    ui::ConfigureCaptureDialog cfg_dlg("Moon", "Captures_TargetTest", 0, 150);
+    TEST_CHECK(cfg_dlg.target_name() == "Moon", "Dialog target name mismatch");
+    TEST_CHECK(cfg_dlg.limit_type() == 2, "Default limit type should be Frames");
+    TEST_CHECK(cfg_dlg.frame_count() == 150, "Default frame count should be 150");
+    TEST_CHECK(cfg_dlg.selected_captures_dir() == "Captures_TargetTest", "Directory mismatch");
+
+    // Connect sim camera and start recording with target "Moon"
+    camera::CameraId sim_id{.driver = "sim", .id = "hilal", .name = "Sim Hilal"};
+    auto conn_res2 = controller.connect_camera(sim_id);
+    TEST_CHECK(conn_res2.is_ok(), "Failed to reconnect sim camera");
+
+    controller.start_recording("png", 1, "Moon");
+    for (int i = 0; i < 50 && controller.is_recording(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    controller.stop_recording();
+
+    auto s_info = controller.session_info();
+    TEST_CHECK(s_info.target == "Moon", "Session target must be Moon");
+    TEST_CHECK(s_info.folder_name.find("Moon") != std::string::npos, "Session folder must contain Moon");
+
+    controller.end_session();
+    controller.disconnect_camera();
+    if (std::filesystem::exists("Captures_TargetTest")) {
+        std::filesystem::remove_all("Captures_TargetTest");
+    }
+    std::cout << "  PASS: Target Name & Configure Capture Dialog verified." << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -256,7 +293,7 @@ int main(int argc, char** argv) {
         test_theme_and_translator();
         test_ui_offscreen_lifecycle(argc, argv);
 
-        std::cout << "\n>>> ALL BATCH 4 TESTS PASSED (5/5) <<<" << std::endl;
+        std::cout << "\n>>> ALL BATCH 4 TESTS PASSED (6/6) <<<" << std::endl;
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "EXCEPTION: " << e.what() << std::endl;

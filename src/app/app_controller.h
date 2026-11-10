@@ -145,8 +145,12 @@ public:
     void set_ai_nms_threshold(float nms);
     std::vector<detect::Detection> get_latest_overlay(int64_t max_age_ms = 500) const;
 
-    // Perekaman Berkas
-    bool start_recording(const std::string& format = "fits", int count = -1); // -1 = continuous
+    // Perekaman Berkas & Folder Tangkapan
+    void set_captures_dir(const std::string& dir);
+    [[nodiscard]] std::string captures_dir() const;
+    void set_active_target(const std::string& target);
+    [[nodiscard]] std::string active_target() const;
+    bool start_recording(const std::string& format = "fits", int count = -1, const std::string& target_override = ""); // -1 = continuous
     void stop_recording();
     [[nodiscard]] bool is_recording() const;
 
@@ -176,6 +180,7 @@ private:
     // Sesi
     Session session_;
     std::string captures_dir_{"Captures"};
+    std::string active_target_{"Hilal"};
 
     // Kamera
     std::unique_ptr<camera::ICamera> camera_;

@@ -9,6 +9,7 @@
 #include "src/ui/dialogs/calibration_dialog.h"
 #include "src/ui/dialogs/session_summary_dialog.h"
 #include "src/ui/dialogs/export_dialog.h"
+#include "src/ui/dialogs/configure_capture_dialog.h"
 #include "src/astro/criteria.h"
 #include "src/astro/plate_solver.h"
 #include "src/imaging/io/fits_writer.h"
@@ -162,12 +163,14 @@ void MainWindow::create_menus() {
     // 3. Capture Menu (Matches Reference Image 2 + Preserves Existing Features, No Icons)
     m_capture_ = menuBar()->addMenu(tr_str("capture"));
     act_record_ = m_capture_->addAction(tr_str("start_capture"), this, &MainWindow::on_record_clicked);
+    act_configure_capture_ = m_capture_->addAction(QString("%1...").arg(tr_str("configure_capture")), this, &MainWindow::on_configure_capture_clicked);
     act_stop_ = m_capture_->addAction(tr_str("stop_capture"), this, &MainWindow::on_stop_clicked);
     m_capture_->addSeparator();
     act_snapshot_ = m_capture_->addAction(tr_str("quick_capture"), this, &MainWindow::on_snapshot_clicked);
     act_delete_capture_ = m_capture_->addAction(tr_str("delete_capture"), this, &MainWindow::on_delete_capture_clicked);
     m_capture_->addSeparator();
     act_cap_open_folder_ = m_capture_->addAction(tr_str("open_capture_folder"), this, &MainWindow::on_open_capture_folder);
+    act_set_captures_folder_ = m_capture_->addAction(tr_str("set_capture_folder"), this, &MainWindow::on_set_capture_folder_clicked);
     m_capture_->addSeparator();
     act_plate_solve_ = m_capture_->addAction(tr_str("plate_solve"), this, &MainWindow::on_plate_solve_clicked);
     act_calibration_ = m_capture_->addAction(tr_str("calibration_wizard"), this, &MainWindow::on_open_calibration_wizard);
@@ -530,6 +533,24 @@ void MainWindow::create_toolbars() {
     // ==========================================
     // GROUP 2: Acquisition Sequence Settings (Compact SharpCap Sizing)
     // ==========================================
+    // Target Name (SharpCap Header Input)
+    lbl_target_ = new QLabel(tr_str("target_name"), tb_container);
+    lbl_target_->setObjectName("ToolbarLabel");
+    hbox->addWidget(lbl_target_, 0, Qt::AlignVCenter);
+
+    target_combo_ = new QComboBox(tb_container);
+    target_combo_->setEditable(true);
+    target_combo_->setFixedSize(115, 24);
+    target_combo_->setToolTip(is_id ? "Nama objek observasi (misal Hilal, Moon, Sun)" : "Target object name (e.g. Hilal, Moon, Sun)");
+    const QStringList default_targets = {
+        "Hilal", "Moon", "Sun", "Venus", "Jupiter", "Saturn", "Mercury", "Mars", "Daylight Sky", "Calibration", "Test Object"
+    };
+    target_combo_->addItems(default_targets);
+    connect(target_combo_, &QComboBox::currentTextChanged, this, &MainWindow::on_target_name_changed);
+    hbox->addWidget(target_combo_, 0, Qt::AlignVCenter);
+
+    add_divider();
+
     // Format
     lbl_fmt_ = new QLabel(tr_str("format"), tb_container);
     lbl_fmt_->setObjectName("ToolbarLabel");
@@ -679,8 +700,10 @@ void MainWindow::setup_shortcuts() {
     if (act_settings_) act_settings_->setShortcut(QKeySequence("Ctrl+,"));
     if (act_exit_) act_exit_->setShortcut(QKeySequence("Ctrl+Q"));
     if (act_record_) act_record_->setShortcut(QKeySequence(Qt::Key_F6));
+    if (act_configure_capture_) act_configure_capture_->setShortcut(QKeySequence("Ctrl+Shift+C"));
     if (act_stop_) act_stop_->setShortcut(QKeySequence(Qt::Key_F7));
     if (act_snapshot_) act_snapshot_->setShortcut(QKeySequence(Qt::Key_F5));
+    if (act_cap_open_folder_) act_cap_open_folder_->setShortcut(QKeySequence("Ctrl+O"));
     if (act_delete_capture_) act_delete_capture_->setShortcut(QKeySequence("Ctrl+D"));
     if (act_plate_solve_) act_plate_solve_->setShortcut(QKeySequence("Ctrl+P"));
     if (act_obs_guide_) act_obs_guide_->setShortcut(QKeySequence(Qt::Key_F1));
@@ -759,11 +782,11 @@ void MainWindow::setup_central_layout() {
     gain_wb_sec_->set_content(camera_panel_->gain_wb_widget());
     right_layout->addWidget(gain_wb_sec_);
 
-    // 5. Image Processing & Stacking (Card 5 - collapsed)
+    // 5. Image Processing & Stacking (Card 5 - expanded by default for full visibility)
     proc_sec_ = new CollapsibleSection(tr_str("processing_stacking"), right_container);
     processing_panel_ = new ProcessingPanel(proc_sec_);
     proc_sec_->set_content(processing_panel_);
-    proc_sec_->set_collapsed(true);
+    proc_sec_->set_collapsed(false);
     right_layout->addWidget(proc_sec_);
 
     // 6. System Log (Card 6 - collapsed)
@@ -930,6 +953,8 @@ void MainWindow::setup_central_layout() {
 
 void MainWindow::on_reset_to_defaults_clicked() {
     if (camera_panel_) camera_panel_->reset_to_defaults();
+    if (processing_panel_) processing_panel_->reset_to_defaults();
+    if (target_combo_) target_combo_->setCurrentIndex(0);
     if (limit_type_combo_) limit_type_combo_->setCurrentIndex(0);
     if (limit_val_spin_) limit_val_spin_->setValue(100);
     if (format_combo_) format_combo_->setCurrentIndex(0);
@@ -1123,7 +1148,7 @@ void MainWindow::process_offline_stack(const QStringList& file_paths) {
 }
 
 void MainWindow::on_open_capture_folder() {
-    std::string folder_path = "sessions";
+    std::string folder_path = controller_.captures_dir();
     if (controller_.is_session_active()) {
         folder_path = controller_.session_info().folder_path;
     }
@@ -1136,6 +1161,21 @@ void MainWindow::on_open_capture_folder() {
     } catch (...) {
         bool is_id = (Translator::instance().language() == Language::Indonesian);
         video_widget_->show_toast(is_id ? "Gagal membuka folder tangkapan" : "Failed to open capture folder");
+    }
+}
+
+void MainWindow::on_set_capture_folder_clicked() {
+    QString current = QString::fromStdString(controller_.captures_dir());
+    QString dir = QFileDialog::getExistingDirectory(
+        this,
+        tr_str("select_capture_folder"),
+        current,
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks
+    );
+    if (!dir.isEmpty()) {
+        controller_.set_captures_dir(dir.toStdString());
+        bool is_id = (Translator::instance().language() == Language::Indonesian);
+        video_widget_->show_toast(QString(is_id ? "Folder Tangkapan: %1" : "Capture Folder: %1").arg(dir));
     }
 }
 
@@ -1431,10 +1471,12 @@ void MainWindow::retranslate_ui() {
 
     // Capture Actions
     if (act_record_) act_record_->setText(tr_str("start_capture"));
+    if (act_configure_capture_) act_configure_capture_->setText(QString("%1...").arg(tr_str("configure_capture")));
     if (act_stop_) act_stop_->setText(tr_str("stop_capture"));
     if (act_snapshot_) act_snapshot_->setText(tr_str("quick_capture"));
     if (act_delete_capture_) act_delete_capture_->setText(tr_str("delete_capture"));
     if (act_cap_open_folder_) act_cap_open_folder_->setText(tr_str("open_capture_folder"));
+    if (act_set_captures_folder_) act_set_captures_folder_->setText(tr_str("set_capture_folder"));
     if (act_plate_solve_) act_plate_solve_->setText(tr_str("plate_solve"));
     if (act_calibration_) act_calibration_->setText(tr_str("calibration_wizard"));
     if (act_reset_stacker_) act_reset_stacker_->setText(tr_str("reset_stacker"));
@@ -1463,6 +1505,7 @@ void MainWindow::retranslate_ui() {
     if (btn_record_) btn_record_->setText(controller_.is_recording() ? tr_str("recording") : tr_str("record"));
     if (btn_stop_) btn_stop_->setText(tr_str("stop"));
     if (btn_quick_capture_) btn_quick_capture_->setText(tr_str("snapshot"));
+    if (lbl_target_) lbl_target_->setText(tr_str("target_name"));
     if (lbl_fmt_) lbl_fmt_->setText(tr_str("format"));
     if (lbl_limit_) lbl_limit_->setText(tr_str("limit_by"));
     if (limit_type_combo_) {
@@ -1587,6 +1630,61 @@ void MainWindow::on_start_session_clicked() {
     }
 }
 
+void MainWindow::on_target_name_changed(const QString& name) {
+    QString clean = name.trimmed();
+    if (clean.isEmpty()) clean = "Hilal";
+    controller_.set_active_target(clean.toStdString());
+}
+
+void MainWindow::on_configure_capture_clicked() {
+    QString cur_target = target_combo_ ? target_combo_->currentText().trimmed() : QString("Hilal");
+    QString cur_folder = QString::fromStdString(controller_.captures_dir());
+    int cur_limit_idx = limit_type_combo_ ? limit_type_combo_->currentIndex() : 0;
+    int cur_limit_val = limit_val_spin_ ? limit_val_spin_->value() : 100;
+
+    ConfigureCaptureDialog dlg(cur_target, cur_folder, cur_limit_idx, cur_limit_val, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        QString new_target = dlg.target_name();
+        if (target_combo_) {
+            target_combo_->setEditText(new_target);
+        }
+        controller_.set_active_target(new_target.toStdString());
+        controller_.set_captures_dir(dlg.selected_captures_dir().toStdString());
+
+        int l_type = dlg.limit_type();
+        if (l_type == 0) { // Single frame snapshot
+            on_snapshot_clicked();
+            return;
+        }
+
+        QString fmt_str = format_combo_->currentText().trimmed();
+        if (fmt_str.startsWith(".")) fmt_str.remove(0, 1);
+        std::string fmt = fmt_str.toLower().toStdString();
+
+        int count = dlg.frame_count();
+        if (l_type == 1) { // Unlimited
+            if (limit_type_combo_) limit_type_combo_->setCurrentIndex(2);
+        } else if (l_type == 2) { // Frames
+            if (limit_type_combo_) limit_type_combo_->setCurrentIndex(0);
+            if (limit_val_spin_) limit_val_spin_->setValue(count);
+        } else if (l_type == 3) { // Time limit
+            if (limit_type_combo_) limit_type_combo_->setCurrentIndex(1);
+            if (limit_val_spin_) limit_val_spin_->setValue(dlg.time_limit_seconds());
+        }
+
+        status_bar_->set_record_target(count > 0 ? count : 100);
+        controller_.start_recording(fmt, count, new_target.toStdString());
+
+        bool is_id = (Translator::instance().language() == Language::Indonesian);
+        btn_record_->setChecked(true);
+        btn_record_->setText(tr_str("recording"));
+        if (btn_stop_) btn_stop_->setEnabled(true);
+        video_widget_->show_toast(QString(is_id ? "Perekaman %1 [%2] Dimulai" : "Recording %1 [%2] Started")
+            .arg(format_combo_->currentText())
+            .arg(new_target));
+    }
+}
+
 void MainWindow::on_record_clicked() {
     if (!controller_.is_recording()) {
         if (!controller_.camera_status().is_connected) {
@@ -1594,9 +1692,11 @@ void MainWindow::on_record_clicked() {
             video_widget_->show_toast(tr_str("select_camera_hint"));
             return;
         }
-        if (!controller_.is_session_active()) {
-            controller_.start_session("Semarang", "Hilal", "Sabit Observer");
-        }
+
+        QString target_str = target_combo_ ? target_combo_->currentText().trimmed() : QString("Hilal");
+        if (target_str.isEmpty()) target_str = "Hilal";
+        std::string target = target_str.toStdString();
+
         QString fmt_str = format_combo_->currentText().trimmed();
         if (fmt_str.startsWith(".")) fmt_str.remove(0, 1);
         std::string fmt = fmt_str.toLower().toStdString();
@@ -1612,13 +1712,15 @@ void MainWindow::on_record_clicked() {
         }
 
         status_bar_->set_record_target(count > 0 ? count : 100);
-        controller_.start_recording(fmt, count);
+        controller_.start_recording(fmt, count, target);
 
         bool is_id = (Translator::instance().language() == Language::Indonesian);
         btn_record_->setChecked(true);
         btn_record_->setText(tr_str("recording"));
         if (btn_stop_) btn_stop_->setEnabled(true);
-        video_widget_->show_toast(QString(is_id ? "Perekaman %1 Dimulai" : "Recording %1 Started").arg(format_combo_->currentText()));
+        video_widget_->show_toast(QString(is_id ? "Perekaman %1 [%2] Dimulai" : "Recording %1 [%2] Started")
+            .arg(format_combo_->currentText())
+            .arg(target_str));
     } else {
         on_stop_clicked();
     }
@@ -1648,17 +1750,21 @@ void MainWindow::on_snapshot_clicked() {
         video_widget_->show_toast(tr_str("select_camera_hint"));
         return;
     }
-    if (!controller_.is_session_active()) {
-        controller_.start_session("Semarang", "Snapshot", "Sabit Observer");
-    }
+
+    QString target_str = target_combo_ ? target_combo_->currentText().trimmed() : QString("Hilal");
+    if (target_str.isEmpty()) target_str = "Hilal";
+    std::string target = target_str.toStdString();
+
     QString fmt_str = format_combo_->currentText().trimmed();
     if (fmt_str.startsWith(".")) fmt_str.remove(0, 1);
     std::string fmt = fmt_str.toLower().toStdString();
 
     int snap_count = (fmt == "mp4" || fmt == "avi") ? 30 : 1;
-    controller_.start_recording(fmt, snap_count);
+    controller_.start_recording(fmt, snap_count, target);
     bool is_id = (Translator::instance().language() == Language::Indonesian);
-    video_widget_->show_toast(QString(is_id ? "Tersimpan: Quick Capture %1" : "Saved: Quick Capture %1").arg(format_combo_->currentText().toUpper()));
+    video_widget_->show_toast(QString(is_id ? "Tersimpan: Quick Capture %1 [%2]" : "Saved: Quick Capture %1 [%2]")
+        .arg(format_combo_->currentText().toUpper())
+        .arg(target_str));
 }
 
 void MainWindow::on_export_diagnostic_clicked() {

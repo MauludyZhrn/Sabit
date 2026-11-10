@@ -216,9 +216,10 @@ void Session::log_event(const std::string& message) {
 
 std::string Session::get_frame_filepath(const std::string& ext, uint64_t seq) const {
     std::lock_guard<std::mutex> lock(mutex_);
+    std::string safe_target = sanitize_filename(info_.target.empty() ? "Hilal" : info_.target);
     std::ostringstream ss;
     ss << info_.folder_path << "/"
-       << info_.target << "_"
+       << safe_target << "_"
        << std::setw(6) << std::setfill('0') << seq
        << "." << ext;
     return ss.str();

@@ -158,7 +158,7 @@ void CameraPanel::create_exposure_ui() {
     });
 
     connect(auto_exp_chk_, &QCheckBox::toggled, this, [this](bool checked) {
-        const bool manual_ok = !checked && current_caps_.capabilities.can_control_exposure;
+        const bool manual_ok = !checked;
         exp_slider_->setEnabled(manual_ok);
         exp_spin_->setEnabled(manual_ok);
         quick_picks_combo_->setEnabled(manual_ok);
@@ -486,14 +486,15 @@ void CameraPanel::reset_to_defaults() {
     if (exp_spin_) exp_spin_->setValue(static_cast<double>(def_exp_ms));
     if (quick_picks_combo_) quick_picks_combo_->setCurrentIndex(0);
     auto_exp_chk_->setChecked(false);
-    exp_slider_->setEnabled(current_caps_.capabilities.can_control_exposure);
-    if (exp_spin_) exp_spin_->setEnabled(current_caps_.capabilities.can_control_exposure);
+    exp_slider_->setEnabled(is_connected_);
+    if (exp_spin_) exp_spin_->setEnabled(is_connected_);
+    if (quick_picks_combo_) quick_picks_combo_->setEnabled(is_connected_);
 
     gain_slider_->setValue(std::clamp(def_gain, gain_slider_->minimum(), gain_slider_->maximum()));
     if (gain_spin_) gain_spin_->setValue(static_cast<double>(gain_slider_->value()));
     auto_gain_chk_->setChecked(false);
-    gain_slider_->setEnabled(current_caps_.capabilities.can_control_gain);
-    if (gain_spin_) gain_spin_->setEnabled(current_caps_.capabilities.can_control_gain);
+    gain_slider_->setEnabled(is_connected_);
+    if (gain_spin_) gain_spin_->setEnabled(is_connected_);
 
     if (fps_limit_combo_) fps_limit_combo_->setCurrentIndex(0);
     if (gamma_slider_) gamma_slider_->setValue(100);
@@ -525,11 +526,11 @@ void CameraPanel::apply_preset(int64_t exp_us, double gain) {
     }
     if (exp_slider_) {
         exp_slider_->setValue(static_cast<int>(std::round(exp_ms)));
-        exp_slider_->setEnabled(current_caps_.capabilities.can_control_exposure);
+        exp_slider_->setEnabled(is_connected_);
     }
     if (exp_spin_) {
         exp_spin_->setValue(exp_ms);
-        exp_spin_->setEnabled(current_caps_.capabilities.can_control_exposure);
+        exp_spin_->setEnabled(is_connected_);
     }
     if (auto_exp_chk_) {
         auto_exp_chk_->setChecked(false);
@@ -537,11 +538,11 @@ void CameraPanel::apply_preset(int64_t exp_us, double gain) {
 
     if (gain_slider_) {
         gain_slider_->setValue(static_cast<int>(gain));
-        gain_slider_->setEnabled(current_caps_.capabilities.can_control_gain);
+        gain_slider_->setEnabled(is_connected_);
     }
     if (gain_spin_) {
         gain_spin_->setValue(gain);
-        gain_spin_->setEnabled(current_caps_.capabilities.can_control_gain);
+        gain_spin_->setEnabled(is_connected_);
     }
     if (auto_gain_chk_) {
         auto_gain_chk_->setChecked(false);
@@ -605,16 +606,25 @@ void CameraPanel::set_caps(const camera::CameraCaps& caps) {
     exp_slider_->setValue(std::clamp(def_exp, min_exp_ms, max_exp_ms));
     if (exp_spin_) exp_spin_->setValue(static_cast<double>(exp_slider_->value()));
     auto_exp_chk_->setChecked(false);
-    exp_slider_->setEnabled(caps.capabilities.can_control_exposure);
-    if (exp_spin_) exp_spin_->setEnabled(caps.capabilities.can_control_exposure);
+    exp_slider_->setEnabled(true);
+    if (exp_spin_) exp_spin_->setEnabled(true);
+    if (quick_picks_combo_) quick_picks_combo_->setEnabled(true);
+    if (lx_mode_chk_) lx_mode_chk_->setEnabled(true);
 
     gain_slider_->setValue(std::clamp(def_gain, min_g, max_g));
     if (gain_spin_) gain_spin_->setValue(static_cast<double>(gain_slider_->value()));
     auto_gain_chk_->setChecked(false);
-    gain_slider_->setEnabled(caps.capabilities.can_control_gain);
-    if (gain_spin_) gain_spin_->setEnabled(caps.capabilities.can_control_gain);
+    gain_slider_->setEnabled(true);
+    if (gain_spin_) gain_spin_->setEnabled(true);
+    if (fps_limit_combo_) fps_limit_combo_->setEnabled(true);
+    if (gamma_slider_) gamma_slider_->setEnabled(true);
+    if (gamma_spin_) gamma_spin_->setEnabled(true);
+    if (gamma_auto_btn_) gamma_auto_btn_->setEnabled(true);
+    if (exp_shift_slider_) exp_shift_slider_->setEnabled(true);
+    if (exp_shift_spin_) exp_shift_spin_->setEnabled(true);
 
-    if (caps.is_color) {
+    const bool is_color_cam = caps.is_color || (caps.bayer != core::BayerPattern::None);
+    if (is_color_cam) {
         if (w_red_slider_) {
             w_red_slider_->setEnabled(true);
             w_red_slider_->setValue(50);
@@ -697,6 +707,30 @@ void CameraPanel::set_disconnected() {
     if (dslr_crop_chk_) {
         dslr_crop_chk_->setChecked(false);
         dslr_crop_chk_->setVisible(false);
+    }
+
+    if (fps_limit_combo_) {
+        fps_limit_combo_->setCurrentIndex(0);
+        fps_limit_combo_->setEnabled(false);
+    }
+    if (gamma_slider_) {
+        gamma_slider_->setValue(100);
+        gamma_slider_->setEnabled(false);
+    }
+    if (gamma_spin_) {
+        gamma_spin_->setValue(1.00);
+        gamma_spin_->setEnabled(false);
+    }
+    if (gamma_auto_btn_) {
+        gamma_auto_btn_->setEnabled(false);
+    }
+    if (exp_shift_slider_) {
+        exp_shift_slider_->setValue(0);
+        exp_shift_slider_->setEnabled(false);
+    }
+    if (exp_shift_spin_) {
+        exp_shift_spin_->setValue(0.00);
+        exp_shift_spin_->setEnabled(false);
     }
 
     if (w_red_slider_) {
