@@ -1,6 +1,8 @@
 add_library(sabit_imaging STATIC
     calibration.h
     calibration.cpp
+    debayer.h
+    debayer.cpp
     stacker.h
     stacker.cpp
     stretch.h

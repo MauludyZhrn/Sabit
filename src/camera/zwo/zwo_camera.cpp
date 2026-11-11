@@ -173,7 +173,7 @@ core::Result<CameraCaps> ZwoCamera::open(const CameraId& id) {
     caps_.max_height = static_cast<int>(camera_info_.MaxHeight);
     caps_.has_cooler = (camera_info_.IsCoolerCam == ASI_TRUE);
     caps_.is_color = (camera_info_.IsColorCam == ASI_TRUE);
-    caps_.bayer = static_cast<core::BayerPattern>(camera_info_.BayerPattern + 1);
+    caps_.bayer = caps_.is_color ? static_cast<core::BayerPattern>(camera_info_.BayerPattern + 1) : core::BayerPattern::None;
 
     caps_.capabilities.can_control_exposure = true;
     caps_.capabilities.can_control_gain = true;
@@ -421,7 +421,8 @@ void ZwoCamera::camera_worker_loop() {
 
         core::Frame frame = core::Frame::create_allocated(w, h, 1, 16);
         frame.seq = ++seq;
-        frame.bayer = caps_.bayer;
+        frame.binning = bin;
+        frame.bayer = (bin > 1 || !caps_.is_color) ? core::BayerPattern::None : caps_.bayer;
 
         // 3. Capture frame data (handle 8-bit vs 16-bit buffer properly)
         std::vector<uint8_t> raw8_buf;

@@ -18,6 +18,7 @@ target_include_directories(sabit_camera PUBLIC
 
 target_link_libraries(sabit_camera PUBLIC
     sabit_core
+    sabit_imaging
     mf
     mfplat
     mfreadwrite

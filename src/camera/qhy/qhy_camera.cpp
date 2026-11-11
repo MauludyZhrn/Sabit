@@ -221,8 +221,38 @@ core::Result<CameraCaps> QhyCamera::open(const CameraId& id) {
     caps_.supported_bins = {1, 2, 3, 4};
     caps_.supported_bit_depths = {8, 16};
     caps_.has_cooler = (p_IsQHYCCDControlAvailable && p_IsQHYCCDControlAvailable(cam_handle_, QHY_CONTROL_COOLER) == QHYCCD_SUCCESS_CODE);
-    caps_.is_color = (p_IsQHYCCDControlAvailable && p_IsQHYCCDControlAvailable(cam_handle_, QHY_CAM_COLOR) == QHYCCD_SUCCESS_CODE);
-    caps_.bayer = caps_.is_color ? core::BayerPattern::RGGB : core::BayerPattern::None;
+
+    // QHYCCD SDK returns Bayer enum for QHY_CAM_COLOR (20):
+    // BAYER_GB = 1, BAYER_GR = 2, BAYER_BG = 3, BAYER_RG = 4
+    caps_.is_color = false;
+    caps_.bayer = core::BayerPattern::None;
+    if (p_IsQHYCCDControlAvailable) {
+        uint32_t col_code = p_IsQHYCCDControlAvailable(cam_handle_, QHY_CAM_COLOR);
+        if (col_code == 1) { // BAYER_GB -> GBRG
+            caps_.is_color = true;
+            caps_.bayer = core::BayerPattern::GBRG;
+        } else if (col_code == 2) { // BAYER_GR -> GRBG
+            caps_.is_color = true;
+            caps_.bayer = core::BayerPattern::GRBG;
+        } else if (col_code == 3) { // BAYER_BG -> BGGR
+            caps_.is_color = true;
+            caps_.bayer = core::BayerPattern::BGGR;
+        } else if (col_code == 4) { // BAYER_RG -> RGGB
+            caps_.is_color = true;
+            caps_.bayer = core::BayerPattern::RGGB;
+        } else if (col_code == QHYCCD_SUCCESS_CODE) {
+            // Success code 0 indicates color capability on some firmware revisions
+            caps_.is_color = true;
+            caps_.bayer = core::BayerPattern::RGGB;
+        } else {
+            // Fallback: check QHY_CAM_IS_COLOR (59)
+            uint32_t is_col = p_IsQHYCCDControlAvailable(cam_handle_, QHY_CAM_IS_COLOR);
+            if (is_col == 1 || is_col == QHYCCD_SUCCESS_CODE) {
+                caps_.is_color = true;
+                caps_.bayer = core::BayerPattern::RGGB;
+            }
+        }
+    }
 
     caps_.capabilities.can_control_exposure = true;
     caps_.capabilities.can_control_gain = true;
@@ -561,7 +591,9 @@ void QhyCamera::camera_worker_loop() {
                 16
             );
             frame.seq = ++seq;
-            frame.bayer = caps_.bayer;
+            const int bin_val = active_settings_.binning.value_or(1);
+            frame.binning = bin_val;
+            frame.bayer = (bin_val > 1 || out_ch == 3) ? core::BayerPattern::None : caps_.bayer;
 
             size_t total_samples = static_cast<size_t>(w) * static_cast<size_t>(h) * static_cast<size_t>(out_ch);
             uint16_t* dst = frame.pixels.get();

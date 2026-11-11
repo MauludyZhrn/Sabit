@@ -17,7 +17,7 @@ enum class SimulatorMode {
 
 class SimulatorCamera : public ICamera {
 public:
-    explicit SimulatorCamera(SimulatorMode mode = SimulatorMode::Hilal, int width = 1280, int height = 720);
+    explicit SimulatorCamera(SimulatorMode mode = SimulatorMode::Hilal, int width = 1280, int height = 720, bool is_color = false);
     ~SimulatorCamera() override;
 
     core::Result<CameraCaps> open(const CameraId& id) override;
@@ -34,6 +34,9 @@ public:
     void set_mode(SimulatorMode mode);
     [[nodiscard]] SimulatorMode mode() const noexcept { return mode_; }
 
+    void set_color(bool is_color) { is_color_ = is_color; }
+    [[nodiscard]] bool is_color() const noexcept { return is_color_; }
+
     void set_target_fps(double fps);
     void set_hot_pixel(int x, int y, uint16_t value = 65535);
 
@@ -47,6 +50,7 @@ private:
     SimulatorMode mode_{SimulatorMode::Hilal};
     int base_width_{1280};
     int base_height_{720};
+    bool is_color_{false};
 
     // Current settings
     int64_t exposure_us_{100000}; // 100 ms default

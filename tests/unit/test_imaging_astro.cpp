@@ -7,6 +7,7 @@
 
 #include "src/core/frame.h"
 #include "src/imaging/calibration.h"
+#include "src/imaging/debayer.h"
 #include "src/imaging/stacker.h"
 #include "src/imaging/stretch.h"
 #include "src/imaging/io/fits_writer.h"
@@ -571,6 +572,72 @@ void test_astrometric_plate_solver() {
     TEST_ASSERT(!sol.format_dec_dms().empty(), "Dec DMS formatting check");
 }
 
+static void test_debayer_bilinear_and_pattern_shift() {
+    using namespace sabit::core;
+    using namespace sabit::imaging;
+
+    // 1. Check pattern shifting
+    TEST_ASSERT(shift_bayer_pattern(BayerPattern::RGGB, 0, 0) == BayerPattern::RGGB, "RGGB shift (0,0)");
+    TEST_ASSERT(shift_bayer_pattern(BayerPattern::RGGB, 1, 0) == BayerPattern::GRBG, "RGGB shift (1,0) -> GRBG");
+    TEST_ASSERT(shift_bayer_pattern(BayerPattern::RGGB, 0, 1) == BayerPattern::GBRG, "RGGB shift (0,1) -> GBRG");
+    TEST_ASSERT(shift_bayer_pattern(BayerPattern::RGGB, 1, 1) == BayerPattern::BGGR, "RGGB shift (1,1) -> BGGR");
+
+    // 2. Check needs_debayer predicate
+    Frame f_mono = Frame::create_allocated(10, 10, 1, 16);
+    f_mono.bayer = BayerPattern::None;
+    TEST_ASSERT(!needs_debayer(f_mono), "Mono 1ch frame does not need debayer");
+
+    Frame f_rgb = Frame::create_allocated(10, 10, 3, 16);
+    f_rgb.bayer = BayerPattern::None;
+    TEST_ASSERT(!needs_debayer(f_rgb), "RGB 3ch frame does not need debayer");
+
+    Frame f_bayer = Frame::create_allocated(10, 10, 1, 16);
+    f_bayer.bayer = BayerPattern::RGGB;
+    TEST_ASSERT(needs_debayer(f_bayer), "Bayer 1ch frame needs debayer");
+
+    // 3. Test bilinear demosaicing on synthetic RGGB 4x4
+    // R  Gr R  Gr
+    // Gb B  Gb B
+    // R  Gr R  Gr
+    // Gb B  Gb B
+    const int w = 4;
+    const int h = 4;
+    Frame raw = Frame::create_allocated(w, h, 1, 16);
+    raw.bayer = BayerPattern::RGGB;
+    raw.exposure_us = 50000;
+    raw.gain = 120.0;
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            uint16_t v = 0;
+            if ((y & 1) == 0 && (x & 1) == 0) v = 50000;      // R
+            else if ((y & 1) == 1 && (x & 1) == 1) v = 10000; // B
+            else v = 30000;                                   // G (Gr / Gb)
+            raw.pixels[y * w + x] = v;
+        }
+    }
+
+    Frame rgb = debayer_bilinear(raw);
+    TEST_ASSERT(rgb.is_valid(), "Debayered frame should be valid");
+    TEST_ASSERT(rgb.width == w && rgb.height == h, "Dimensions preserved");
+    TEST_ASSERT(rgb.channels == 3, "Output must have 3 channels");
+    TEST_ASSERT(rgb.bayer == BayerPattern::None, "Bayer flag must be None after demosaicing");
+    TEST_ASSERT(rgb.exposure_us == 50000, "Metadata exposure preserved");
+    TEST_ASSERT(rgb.gain == 120.0, "Metadata gain preserved");
+
+    // Check inner pixel (x=1, y=1), which is a native Blue site on RGGB
+    // B should be exact 10000
+    // G should be average of adjacent G sites (30000)
+    // R should be average of adjacent R diagonals (50000)
+    size_t idx = (1 * w + 1) * 3;
+    uint16_t r_out = rgb.pixels[idx + 0];
+    uint16_t g_out = rgb.pixels[idx + 1];
+    uint16_t b_out = rgb.pixels[idx + 2];
+    TEST_ASSERT(b_out == 10000, "Native B sample check");
+    TEST_ASSERT(g_out == 30000, "Interpolated G sample check");
+    TEST_ASSERT(r_out == 50000, "Interpolated R sample check");
+}
+
 int main() {
     std::cout << "========================================================\n";
     std::cout << " Sabit Batch 2: Imaging & Astro Unit Test Suite\n";
@@ -591,6 +658,7 @@ int main() {
     RUN_TEST(test_phase_correlation_alignment);
     RUN_TEST(test_mp4_video_writer);
     RUN_TEST(test_astrometric_plate_solver);
+    RUN_TEST(test_debayer_bilinear_and_pattern_shift);
 
     std::cout << "========================================================\n";
     std::cout << " Summary: " << g_tests_passed << " passed, " << g_tests_failed << " failed.\n";

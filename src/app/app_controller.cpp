@@ -2,6 +2,7 @@
 #include "src/core/logger.h"
 #include "src/imaging/io/fits_writer.h"
 #include "src/imaging/io/image_writer.h"
+#include "src/imaging/debayer.h"
 
 #include <windows.h>
 #include <chrono>
@@ -225,7 +226,8 @@ std::vector<camera::CameraId> AppController::enumerate_cameras(bool force_rescan
     // 5. Simulator & Test Cameras (SharpCap-compatible Test Cameras + Hilal Simulator)
     list.push_back(camera::CameraId{.driver = "sim", .id = "starfield", .name = "Test Camera 1 (Deep Sky)"});
     list.push_back(camera::CameraId{.driver = "sim", .id = "gradient", .name = "Test Camera 2 (High Speed)"});
-    list.push_back(camera::CameraId{.driver = "sim", .id = "hilal", .name = "Simulator: Hilal Dusk"});
+    list.push_back(camera::CameraId{.driver = "sim", .id = "hilal", .name = "Simulator: Hilal Dusk (Mono)"});
+    list.push_back(camera::CameraId{.driver = "sim", .id = "hilal_color", .name = "Simulator: Hilal Dusk (Color / Bayer RGGB)"});
 
     cached_cameras_ = list;
     return cached_cameras_;
@@ -237,9 +239,14 @@ core::Result<camera::CameraCaps> AppController::connect_camera(const camera::Cam
 
     if (id.driver == "sim") {
         camera::SimulatorMode mode = camera::SimulatorMode::Hilal;
+        bool is_color = false;
         if (id.id == "gradient") mode = camera::SimulatorMode::Gradient;
         else if (id.id == "starfield") mode = camera::SimulatorMode::StarField;
-        camera_ = std::make_unique<camera::SimulatorCamera>(mode, 1280, 720);
+        else if (id.id == "hilal_color") {
+            mode = camera::SimulatorMode::Hilal;
+            is_color = true;
+        }
+        camera_ = std::make_unique<camera::SimulatorCamera>(mode, 1280, 720, is_color);
     } else if (id.driver == "zwo") {
         auto zwo = std::make_unique<camera::ZwoCamera>();
         zwo->set_disconnected_callback([this]() {
@@ -747,9 +754,17 @@ void AppController::processing_worker() {
         proc_frame.gain = frame.gain;
         proc_frame.sensor_temp_c = frame.sensor_temp_c;
         proc_frame.timestamp_utc = frame.timestamp_utc;
+        proc_frame.bayer = frame.bayer;
+        proc_frame.binning = frame.binning;
         std::memcpy(proc_frame.pixels.get(), frame.pixels.get(), frame.byte_size());
 
         calibration_.apply(proc_frame);
+
+        // 3b. Demosaic one-shot-colour (Bayer) sensors so colour CCD/CMOS cameras
+        // are previewed, stacked and recorded as RGB instead of a grey mosaic.
+        if (imaging::needs_debayer(proc_frame)) {
+            proc_frame = imaging::debayer_bilinear(proc_frame);
+        }
 
         // 4. Stacking pipeline
         if (stacking_enabled_.load() && stacker_) {

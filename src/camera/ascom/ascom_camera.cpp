@@ -1,6 +1,7 @@
 #include "src/camera/ascom/ascom_camera.h"
 #include "src/core/clock.h"
 #include "src/core/logger.h"
+#include "src/imaging/debayer.h"
 
 #include <windows.h>
 #include <objbase.h>
@@ -603,7 +604,14 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
     long max_bin_x = com_get_long(disp, L"MaxBinX", 4);
     bool can_set_temp = com_get_bool(disp, L"CanSetCCDTemperature", false);
     can_abort_exposure_ = com_get_bool(disp, L"CanAbortExposure", false);
-    long sensor_type = com_get_long(disp, L"SensorType", 0); // 0=Mono, 1=Color, 2=RGGB
+    long sensor_type = com_get_long(disp, L"SensorType", 0); // 0=Mono, 1=Color (RGB planes), 2=RGGB, 3=CMYG, 4=CMYG2, 5=LRGB
+    long bayer_off_x = 0;
+    long bayer_off_y = 0;
+    if (sensor_type == 2) {
+        // ASCOM: BayerOffsetX/Y shift the RGGB mosaic origin (throws for non-Bayer sensors)
+        bayer_off_x = com_get_long(disp, L"BayerOffsetX", 0);
+        bayer_off_y = com_get_long(disp, L"BayerOffsetY", 0);
+    }
     long raw_max_adu = com_get_long(disp, L"MaxADU", 65535);
     max_adu_ = (raw_max_adu > 0) ? static_cast<int32_t>(raw_max_adu) : 65535;
     const bool is_live_view_adu = (max_adu_ <= 255);
@@ -627,8 +635,13 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
         caps_.min_gain = static_cast<double>(gain_min);
         caps_.max_gain = static_cast<double>(gain_max);
         caps_.has_cooler = can_set_temp;
-        caps_.is_color = (sensor_type != 0);
-        caps_.bayer = (sensor_type >= 2) ? core::BayerPattern::RGGB : core::BayerPattern::None;
+        // Only full-colour (1) and RGGB Bayer (2) sensors can be rendered as RGB;
+        // CMYG / LRGB mosaics are treated as monochrome luminance.
+        caps_.is_color = (sensor_type == 1 || sensor_type == 2);
+        caps_.bayer = (sensor_type == 2)
+            ? imaging::shift_bayer_pattern(core::BayerPattern::RGGB,
+                                           static_cast<int>(bayer_off_x), static_cast<int>(bayer_off_y))
+            : core::BayerPattern::None;
 
         caps_.supported_bins.clear();
         for (int b = 1; b <= std::clamp<int>(static_cast<int>(max_bin_x), 1, 4); ++b) {
@@ -835,7 +848,9 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
                             int bd = active_settings_.bit_depth.value_or(16);
                             core::Frame frame = core::Frame::create_allocated(w, h, ch, bd);
                             frame.seq = ++seq;
-                            frame.bayer = (ch == 3) ? core::BayerPattern::None : caps_.bayer;
+                            // Binned Bayer data is no longer a valid colour mosaic; show it as luminance
+                            const bool binned = active_settings_.binning.value_or(1) > 1;
+                            frame.bayer = (ch == 3 || binned) ? core::BayerPattern::None : caps_.bayer;
 
                             VARTYPE elem_vt = VT_EMPTY;
                             SafeArrayGetVartype(psa, &elem_vt);
@@ -894,6 +909,33 @@ void AscomCamera::camera_worker_loop(std::shared_ptr<std::promise<core::Result<C
                                             s = static_cast<uint16_t>(std::clamp<int>(static_cast<int>(s * trim_mult), 0, 65535));
                                         }
                                         dst[i] = s;
+                                    }
+                                }
+
+                                // Software white balance on the raw mosaic (R and B sites) for Bayer sensors
+                                if (frame.bayer != core::BayerPattern::None) {
+                                    const int wr = active_settings_.wb_red.value_or(50);
+                                    const int wbl = active_settings_.wb_blue.value_or(50);
+                                    if (wr != 50 || wbl != 50) {
+                                        const float wb_r = 1.0f + (wr - 50) * 0.015f;
+                                        const float wb_b = 1.0f + (wbl - 50) * 0.015f;
+                                        // Colour at the four 2x2 sites: 0=R, 1=G, 2=B
+                                        int site[2][2] = {{0, 1}, {1, 2}};
+                                        switch (frame.bayer) {
+                                            case core::BayerPattern::BGGR: site[0][0] = 2; site[0][1] = 1; site[1][0] = 1; site[1][1] = 0; break;
+                                            case core::BayerPattern::GRBG: site[0][0] = 1; site[0][1] = 0; site[1][0] = 2; site[1][1] = 1; break;
+                                            case core::BayerPattern::GBRG: site[0][0] = 1; site[0][1] = 2; site[1][0] = 0; site[1][1] = 1; break;
+                                            default: break;
+                                        }
+                                        for (int yy = 0; yy < h; ++yy) {
+                                            uint16_t* row = dst + static_cast<size_t>(yy) * w;
+                                            for (int xx = 0; xx < w; ++xx) {
+                                                const int c = site[yy & 1][xx & 1];
+                                                if (c == 1) continue;
+                                                const float m = (c == 0) ? wb_r : wb_b;
+                                                row[xx] = static_cast<uint16_t>(std::clamp<int>(static_cast<int>(row[xx] * m), 0, 65535));
+                                            }
+                                        }
                                     }
                                 }
                             } else {

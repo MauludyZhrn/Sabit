@@ -5,8 +5,8 @@
 
 namespace sabit::camera {
 
-SimulatorCamera::SimulatorCamera(SimulatorMode mode, int width, int height)
-    : mode_(mode), base_width_(width), base_height_(height) {}
+SimulatorCamera::SimulatorCamera(SimulatorMode mode, int width, int height, bool is_color)
+    : mode_(mode), base_width_(width), base_height_(height), is_color_(is_color) {}
 
 SimulatorCamera::~SimulatorCamera() {
     close();
@@ -42,12 +42,15 @@ CameraCaps SimulatorCamera::caps() const {
     c.supported_bins = {1, 2, 4};
     c.supported_bit_depths = {8, 16};
     c.has_cooler = true;
-    c.is_color = false;
-    c.bayer = core::BayerPattern::None;
+    c.is_color = is_color_;
+    c.bayer = is_color_ ? core::BayerPattern::RGGB : core::BayerPattern::None;
+    if (is_color_) {
+        c.model = "Sabit Synthetic Color Camera (RGGB)";
+    }
 
     c.capabilities.can_control_exposure = true;
     c.capabilities.can_control_gain = true;
-    c.capabilities.can_control_wb = false;
+    c.capabilities.can_control_wb = is_color_;
     c.capabilities.can_control_roi = true;
     c.capabilities.can_control_pixel_format = true;
     c.capabilities.has_hardware_exposure = true;
@@ -220,6 +223,7 @@ core::Frame SimulatorCamera::generate_frame(uint64_t seq) {
     SimulatorMode cur_mode = SimulatorMode::Hilal;
     int hpx = -1, hpy = -1;
     uint16_t hpval = 65535;
+    bool is_col = false;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -234,6 +238,7 @@ core::Frame SimulatorCamera::generate_frame(uint64_t seq) {
         hpx = hot_pixel_x_;
         hpy = hot_pixel_y_;
         hpval = hot_pixel_val_;
+        is_col = is_color_;
     }
 
     core::Frame frame = core::Frame::create_allocated(w, h, 1, bd);
@@ -243,7 +248,7 @@ core::Frame SimulatorCamera::generate_frame(uint64_t seq) {
     frame.sensor_temp_c = temp;
     frame.binning = b;
     frame.bit_depth = bd;
-    frame.bayer = core::BayerPattern::None;
+    frame.bayer = (b == 1 && is_col) ? core::BayerPattern::RGGB : core::BayerPattern::None;
     frame.timestamp_utc = core::Clock::now_utc();
     frame.clock_sync = core::Clock::get_sync();
 
@@ -319,10 +324,16 @@ void SimulatorCamera::render_hilal(uint16_t* buf, int w, int h) {
     double inner_offset_x = -h * 0.022;
     double inner_offset_y = -h * 0.005;
 
+    bool is_color_sensor = (is_color_ && binning_ == 1);
+
     for (int y = 0; y < h; ++y) {
         // Twilight sky gradient: brighter at horizon (bottom), darker at top
         double y_ratio = static_cast<double>(y) / static_cast<double>(h);
         double sky_intensity = 3500.0 + 12000.0 * (y_ratio * y_ratio);
+
+        double r_sky = 4000.0 + 20000.0 * (y_ratio * y_ratio);
+        double g_sky = 3500.0 + 11000.0 * (y_ratio * y_ratio);
+        double b_sky = 7500.0 * (1.0 - y_ratio * 0.6) + 1500.0;
 
         for (int x = 0; x < w; ++x) {
             double dx_out = x - cx;
@@ -333,13 +344,7 @@ void SimulatorCamera::render_hilal(uint16_t* buf, int w, int h) {
             double dy_in = y - (cy + inner_offset_y);
             double d_in_sq = dx_in * dx_in + dy_in * dy_in;
 
-            double val = sky_intensity;
-
-            // Thin crescent: inside outer circle, outside inner circle, right side
-            if (d_out_sq <= (r_outer * r_outer) && d_in_sq >= (r_inner * r_inner) && dx_out > -r_outer * 0.2) {
-                // Bright hilal arc
-                val += 42000.0;
-            }
+            bool is_crescent = (d_out_sq <= (r_outer * r_outer) && d_in_sq >= (r_inner * r_inner) && dx_out > -r_outer * 0.2);
 
             // Pseudo-random mild noise
             uint32_t seed = static_cast<uint32_t>(y * w + x);
@@ -350,8 +355,27 @@ void SimulatorCamera::render_hilal(uint16_t* buf, int w, int h) {
             seed = seed ^ (seed >> 15);
             double noise = static_cast<double>(seed % 100) - 50.0;
 
-            val = std::clamp(val + noise, 0.0, 65535.0);
-            buf[y * w + x] = static_cast<uint16_t>(val);
+            if (is_color_sensor) {
+                // Synthesize realistic Bayer RGGB CFA values
+                // (y%2==0, x%2==0) -> R
+                // (y%2==0, x%2==1) -> Gr
+                // (y%2==1, x%2==0) -> Gb
+                // (y%2==1, x%2==1) -> B
+                double c_val = 0.0;
+                if ((y & 1) == 0 && (x & 1) == 0) {
+                    c_val = r_sky + (is_crescent ? 44000.0 : 0.0);
+                } else if (((y & 1) == 0 && (x & 1) == 1) || ((y & 1) == 1 && (x & 1) == 0)) {
+                    c_val = g_sky + (is_crescent ? 41000.0 : 0.0);
+                } else {
+                    c_val = b_sky + (is_crescent ? 33000.0 : 0.0);
+                }
+                c_val = std::clamp(c_val + noise, 0.0, 65535.0);
+                buf[y * w + x] = static_cast<uint16_t>(c_val);
+            } else {
+                double val = sky_intensity + (is_crescent ? 42000.0 : 0.0);
+                val = std::clamp(val + noise, 0.0, 65535.0);
+                buf[y * w + x] = static_cast<uint16_t>(val);
+            }
         }
     }
 }

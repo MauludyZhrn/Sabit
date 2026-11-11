@@ -589,7 +589,9 @@ void CameraPanel::set_caps(const camera::CameraCaps& caps) {
 
     if (driver_info_lbl_) {
         QString drv = QString::fromStdString(caps.driver).toUpper();
-        QString mode = caps.is_color ? "RGB Color" : "Mono 16-bit";
+        QString mode = (caps.bayer != core::BayerPattern::None)
+            ? QString("Color (%1)").arg(core::bayer_pattern_to_string(caps.bayer))
+            : (caps.is_color ? "RGB Color" : "Mono 16-bit");
         QString hw_str = caps.capabilities.has_hardware_exposure ? "HW-Exp" : "SW-Trim";
         driver_info_lbl_->setText(QString("%1 [%2 | %3 | %4 | %5x%6]")
             .arg(QString::fromStdString(caps.model))
