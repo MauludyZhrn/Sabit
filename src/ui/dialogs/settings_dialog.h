@@ -22,6 +22,7 @@ public:
         const astro::Site& current_site = astro::Site{"Semarang", -6.9932, 110.4203, 50.0, 7.0, true},
         double current_ai_conf = 0.40,
         bool align_enabled = true,
+        const QString& current_capture_dir = "Captures",
         QWidget* parent = nullptr);
     ~SettingsDialog() override = default;
 
@@ -31,6 +32,11 @@ public:
     [[nodiscard]] double selected_ai_conf() const;
     [[nodiscard]] bool selected_align_enabled() const;
     [[nodiscard]] QString selected_default_format() const;
+    [[nodiscard]] QString selected_capture_dir() const;
+    [[nodiscard]] QString selected_log_dir() const;
+    [[nodiscard]] QString selected_filename_template() const;
+    [[nodiscard]] bool selected_log_csv_enabled() const;
+    [[nodiscard]] bool selected_separate_folders_enabled() const;
 
 private slots:
     void on_reset_defaults();
@@ -76,9 +82,11 @@ private:
     // Tab 6: Saving Filenames
     QComboBox* default_fmt_combo_{nullptr};
     QLineEdit* capture_dir_edit_{nullptr};
+    QLineEdit* log_dir_edit_{nullptr};
     QLineEdit* filename_tpl_edit_{nullptr};
     QCheckBox* save_fits_hdr_check_{nullptr};
     QCheckBox* log_csv_check_{nullptr};
+    QCheckBox* separate_folders_check_{nullptr};
 
     // Tab 7: Memory CPU
     QSpinBox* ring_buffer_spin_{nullptr};

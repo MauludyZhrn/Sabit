@@ -48,10 +48,16 @@ public:
     void write_manifest();
     void log_event(const std::string& message);
 
+    std::string begin_capture_event(const std::string& capture_type, int target_count, const std::string& format);
+    void end_capture_event();
+
     [[nodiscard]] std::string get_frame_filepath(const std::string& ext, uint64_t seq) const;
     [[nodiscard]] std::string get_log_filepath() const;
     [[nodiscard]] std::string get_detections_csv_filepath() const;
     [[nodiscard]] std::string get_manifest_filepath() const;
+    [[nodiscard]] std::string get_logs_dir() const;
+    [[nodiscard]] std::string get_captures_dir() const;
+    [[nodiscard]] std::string get_current_event_dir() const;
 
     [[nodiscard]] SessionInfo info() const;
     [[nodiscard]] bool is_active() const;
@@ -64,6 +70,10 @@ private:
     mutable std::mutex mutex_;
     SessionInfo info_{};
     std::ofstream log_stream_;
+    std::string logs_dir_;
+    std::string captures_dir_;
+    std::string current_event_dir_;
+    std::string current_event_prefix_;
 };
 
 } // namespace sabit::app

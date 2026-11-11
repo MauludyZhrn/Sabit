@@ -174,6 +174,7 @@ private:
     void on_camera_frame(const core::Frame& frame);
     void processing_worker();
     void writer_worker();
+    void handle_ai_detection(const core::Frame& f, const detect::DetectionResult& r);
     void update_power_management(bool recording);
     void check_disk_space();
 
@@ -218,6 +219,7 @@ private:
     // AI
     detect::OnnxDetector detector_;
     std::unique_ptr<detect::DetectionLogger> detection_logger_;
+    std::mutex det_log_mutex_;
     std::atomic<bool> ai_enabled_{false};
 
     // Recording

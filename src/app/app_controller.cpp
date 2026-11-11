@@ -73,16 +73,9 @@ void AppController::check_disk_space() {
 bool AppController::start_session(const std::string& location, const std::string& target, const std::string& observer) {
     bool ok = session_.start(captures_dir_, location, target, camera_caps_, observer);
     if (ok) {
+        std::lock_guard<std::mutex> lk(det_log_mutex_);
         std::string csv_path = session_.get_detections_csv_filepath();
         detection_logger_ = std::make_unique<detect::DetectionLogger>(csv_path);
-
-        if (detector_.is_initialized()) {
-            detector_.set_detection_callback([this](const core::Frame& f, const detect::DetectionResult& r) {
-                if (detection_logger_ && !r.detections.empty()) {
-                    detection_logger_->log_batch(f, r.detections);
-                }
-            });
-        }
     }
     return ok;
 }
@@ -92,9 +85,13 @@ void AppController::end_session() {
         stop_recording();
     }
     session_.finish();
-    if (detection_logger_) {
-        detection_logger_->flush();
-        detection_logger_->close();
+    {
+        std::lock_guard<std::mutex> lk(det_log_mutex_);
+        if (detection_logger_) {
+            detection_logger_->flush();
+            detection_logger_->close();
+            detection_logger_.reset();
+        }
     }
 }
 
@@ -584,14 +581,65 @@ core::Result<void> AppController::init_ai(const std::string& model_path, const s
 
     auto res = detector_.init(cfg);
     if (res.is_ok()) {
+        detector_.set_detection_callback([this](const core::Frame& f, const detect::DetectionResult& r) {
+            this->handle_ai_detection(f, r);
+        });
         detector_.start_worker();
     }
     return res;
 }
 
+void AppController::handle_ai_detection(const core::Frame& f, const detect::DetectionResult& r) {
+    if (r.detections.empty()) return;
+
+    // 1. Log to active or standalone detection CSV logger
+    {
+        std::lock_guard<std::mutex> lk(det_log_mutex_);
+        if (!detection_logger_) {
+            std::string csv_path = session_.is_active()
+                ? session_.get_detections_csv_filepath()
+                : (std::filesystem::path(captures_dir_) / "logs" / "detections.csv").string();
+            std::error_code ec;
+            std::filesystem::create_directories(std::filesystem::path(csv_path).parent_path(), ec);
+            detection_logger_ = std::make_unique<detect::DetectionLogger>(csv_path);
+        }
+        if (detection_logger_) {
+            detection_logger_->log_batch(f, r.detections);
+        }
+    }
+
+    // 2. Format detailed log line for each detected bounding box so user can evaluate accuracy
+    for (const auto& det : r.detections) {
+        char buf[256];
+        std::snprintf(buf, sizeof(buf),
+            "[AI Sensor] Frame #%llu | %s (conf: %.1f%%) | BBox: [x=%.1f, y=%.1f, w=%.1f, h=%.1f] | Exp=%.1fms, Gain=%.1fdB",
+            static_cast<unsigned long long>(f.seq),
+            det.label.c_str(),
+            det.confidence * 100.0f,
+            det.x, det.y, det.width, det.height,
+            f.exposure_us / 1000.0,
+            f.gain);
+
+        std::string log_line(buf);
+        SABIT_LOG_INFO(log_line);
+        if (session_.is_active()) {
+            session_.log_event(log_line);
+        }
+    }
+}
+
 void AppController::enable_ai(bool enable) {
     ai_enabled_.store(enable);
-    session_.log_event(enable ? "AI Detection enabled." : "AI Detection disabled.");
+    if (enable) {
+        if (!session_.is_active()) {
+            start_session(site_.name, active_target_, "Sabit Observer");
+        }
+        session_.log_event("AI Sensor activated: continuous bounding box logging active.");
+        SABIT_LOG_INFO("AI Sensor activated: continuous bounding box logging active.");
+    } else {
+        session_.log_event("AI Sensor deactivated.");
+        SABIT_LOG_INFO("AI Sensor deactivated.");
+    }
 }
 
 bool AppController::is_ai_enabled() const {
@@ -651,6 +699,8 @@ bool AppController::start_recording(const std::string& format, int count, const 
     update_power_management(true);
 
     last_manifest_write_time_ = std::chrono::steady_clock::now();
+    std::string cap_type = (count == 1) ? "Snapshot" : ((format == "mp4" || format == "avi") ? "Video" : "Sequence");
+    session_.begin_capture_event(cap_type, count, format);
     session_.log_event("Recording started: target=" + target + ", format=" + format + ", target_count=" + std::to_string(count));
 
     return true;
@@ -670,6 +720,7 @@ void AppController::stop_recording() {
                 mp4_writer_.reset();
             }
         }
+        session_.end_capture_event();
         session_.log_event("Recording stopped. Total frames: " + std::to_string(frames_recorded_.load()));
         session_.write_manifest();
     }

@@ -66,6 +66,18 @@ void test_session_lifecycle() {
     TEST_CHECK(content.find("\"frames_recorded\": 50") != std::string::npos, "Recorded frames count missing");
     TEST_CHECK(content.find("\"detections_count\": 5") != std::string::npos, "Detections count missing");
 
+    // Verify organized directory layout: logs/ and captures/
+    TEST_CHECK(std::filesystem::exists(session.get_logs_dir()), "logs/ subfolder must exist");
+    TEST_CHECK(std::filesystem::exists(session.get_captures_dir()), "captures/ subfolder must exist");
+    TEST_CHECK(std::filesystem::exists(session.get_log_filepath()), "session.log must exist in logs/");
+
+    // Verify distinct capture event subfolder creation within session
+    std::string snap_dir = session.begin_capture_event("Snapshot", 1, "fits");
+    TEST_CHECK(std::filesystem::exists(snap_dir), "Snapshot event subfolder must exist");
+    std::string frame_path = session.get_frame_filepath("fits", 1);
+    TEST_CHECK(frame_path.find("Snapshot_") != std::string::npos, "Frame path must include Snapshot timestamp prefix");
+    session.end_capture_event();
+
     session.finish();
     TEST_CHECK(!session.is_active(), "Session should be inactive after finish");
 

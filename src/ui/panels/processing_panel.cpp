@@ -460,6 +460,12 @@ bool ProcessingPanel::is_align_enabled() const {
     return align_chk_ ? align_chk_->isChecked() : true;
 }
 
+void ProcessingPanel::set_align_enabled(bool enabled) {
+    if (align_chk_) {
+        align_chk_->setChecked(enabled);
+    }
+}
+
 void ProcessingPanel::reset_to_defaults() {
     updating_ui_ = true;
 

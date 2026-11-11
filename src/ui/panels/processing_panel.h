@@ -24,6 +24,7 @@ public:
     void sync_stretch_ui(double black_pt, double white_pt, bool auto_stretch, bool invert);
     [[nodiscard]] imaging::StackMethod current_stack_method() const;
     [[nodiscard]] bool is_align_enabled() const;
+    void set_align_enabled(bool enabled);
     void reset_to_defaults();
 
     void retranslate_ui();

@@ -73,6 +73,8 @@ private:
     void handle_camera_connected(const camera::CameraId& cam, const core::Result<camera::CameraCaps>& res);
     void refresh_theme_icons();
     void update_ai_toolbar_button(AiButtonState state);
+    void load_persisted_settings();
+    void save_persisted_settings();
 
     QIcon get_asset_icon(const QString& filename) const;
 

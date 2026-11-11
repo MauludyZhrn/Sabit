@@ -19,6 +19,7 @@ SettingsDialog::SettingsDialog(
     const astro::Site& current_site,
     double current_ai_conf,
     bool align_enabled,
+    const QString& current_capture_dir,
     QWidget* parent)
     : QDialog(parent) {
     const bool is_id = (Translator::instance().language() == Language::Indonesian);
@@ -352,7 +353,7 @@ SettingsDialog::SettingsDialog(
     auto* dir_hbox = new QHBoxLayout(dir_row);
     dir_hbox->setContentsMargins(0, 0, 0, 0);
     dir_hbox->setSpacing(6);
-    capture_dir_edit_ = new QLineEdit("sessions", dir_row);
+    capture_dir_edit_ = new QLineEdit(current_capture_dir.isEmpty() ? "Captures" : current_capture_dir, dir_row);
     auto* browse_dir_btn = new QPushButton(tr_str("browse"), dir_row);
     connect(browse_dir_btn, &QPushButton::clicked, this, [this]() {
         QString dir = QFileDialog::getExistingDirectory(this, tr_str("browse"), capture_dir_edit_->text());
@@ -361,10 +362,24 @@ SettingsDialog::SettingsDialog(
     dir_hbox->addWidget(capture_dir_edit_, 1);
     dir_hbox->addWidget(browse_dir_btn);
 
+    auto* log_row = new QWidget(save_tab);
+    auto* log_hbox = new QHBoxLayout(log_row);
+    log_hbox->setContentsMargins(0, 0, 0, 0);
+    log_hbox->setSpacing(6);
+    log_dir_edit_ = new QLineEdit("logs", log_row);
+    auto* browse_log_btn = new QPushButton(tr_str("browse"), log_row);
+    connect(browse_log_btn, &QPushButton::clicked, this, [this]() {
+        QString dir = QFileDialog::getExistingDirectory(this, tr_str("browse"), log_dir_edit_->text());
+        if (!dir.isEmpty()) log_dir_edit_->setText(dir);
+    });
+    log_hbox->addWidget(log_dir_edit_, 1);
+    log_hbox->addWidget(browse_log_btn);
+
     filename_tpl_edit_ = new QLineEdit("Sabit_{target}_{date}_{time}", save_tab);
 
     save_form->addRow(is_id ? "Format Berkas Perekaman:" : "Default Recording Format:", default_fmt_combo_);
-    save_form->addRow(is_id ? "Direktori Penyimpanan Sesi:" : "Default Capture Directory:", dir_row);
+    save_form->addRow(is_id ? "Direktori Utama Sesi & Capture:" : "Primary Captures Directory:", dir_row);
+    save_form->addRow(is_id ? "Subfolder / Folder Data Log:" : "Data Log Subfolder:", log_row);
     save_form->addRow(is_id ? "Pola Penamaan Berkas:" : "Filename Prefix Template:", filename_tpl_edit_);
     save_layout->addLayout(save_form);
 
@@ -375,13 +390,20 @@ SettingsDialog::SettingsDialog(
     save_fits_hdr_check_->setChecked(true);
 
     log_csv_check_ = new QCheckBox(
-        is_id ? "Catat hasil deteksi AI Hilal secara otomatis ke berkas CSV"
-              : "Automatically record AI crescent detections to session CSV log",
+        is_id ? "Catat hasil deteksi AI Hilal dan bounding box secara otomatis ke CSV"
+              : "Automatically record AI crescent detections & bounding boxes to CSV",
         save_tab);
     log_csv_check_->setChecked(true);
 
+    separate_folders_check_ = new QCheckBox(
+        is_id ? "Kelompokkan setiap hasil capture ke subfolder berbeda dalam 1 session"
+              : "Organize each capture into distinct subfolder within 1 session",
+        save_tab);
+    separate_folders_check_->setChecked(true);
+
     save_layout->addWidget(save_fits_hdr_check_);
     save_layout->addWidget(log_csv_check_);
+    save_layout->addWidget(separate_folders_check_);
     save_layout->addStretch(1);
 
     tabs_->addTab(save_tab, is_id ? "Penamaan Berkas" : "Saving Filenames");
@@ -512,6 +534,10 @@ void SettingsDialog::on_export_settings() {
     obj["phase_correlation_align"] = auto_align_check_->isChecked();
     obj["default_format"] = default_fmt_combo_->currentText();
     obj["capture_dir"] = capture_dir_edit_->text();
+    obj["log_dir"] = log_dir_edit_->text();
+    obj["filename_template"] = filename_tpl_edit_->text();
+    obj["log_csv"] = log_csv_check_->isChecked();
+    obj["separate_folders"] = separate_folders_check_->isChecked();
 
     QFile file(path);
     if (file.open(QIODevice::WriteOnly)) {
@@ -545,6 +571,11 @@ void SettingsDialog::on_import_settings() {
     if (obj.contains("camera_gain")) default_gain_spin_->setValue(obj["camera_gain"].toDouble(100.0));
     if (obj.contains("ai_confidence")) ai_conf_spin_->setValue(obj["ai_confidence"].toDouble(0.40));
     if (obj.contains("phase_correlation_align")) auto_align_check_->setChecked(obj["phase_correlation_align"].toBool(true));
+    if (obj.contains("capture_dir")) capture_dir_edit_->setText(obj["capture_dir"].toString("Captures"));
+    if (obj.contains("log_dir")) log_dir_edit_->setText(obj["log_dir"].toString("logs"));
+    if (obj.contains("filename_template")) filename_tpl_edit_->setText(obj["filename_template"].toString("Sabit_{target}_{date}_{time}"));
+    if (obj.contains("log_csv")) log_csv_check_->setChecked(obj["log_csv"].toBool(true));
+    if (obj.contains("separate_folders")) separate_folders_check_->setChecked(obj["separate_folders"].toBool(true));
 
     QMessageBox::information(this,
         is_id ? "Impor Pengaturan" : "Import Settings",
@@ -583,6 +614,26 @@ bool SettingsDialog::selected_align_enabled() const {
 
 QString SettingsDialog::selected_default_format() const {
     return default_fmt_combo_->currentText();
+}
+
+QString SettingsDialog::selected_capture_dir() const {
+    return capture_dir_edit_ ? capture_dir_edit_->text().trimmed() : QString("Captures");
+}
+
+QString SettingsDialog::selected_log_dir() const {
+    return log_dir_edit_ ? log_dir_edit_->text().trimmed() : QString("logs");
+}
+
+QString SettingsDialog::selected_filename_template() const {
+    return filename_tpl_edit_ ? filename_tpl_edit_->text().trimmed() : QString("Sabit_{target}_{date}_{time}");
+}
+
+bool SettingsDialog::selected_log_csv_enabled() const {
+    return log_csv_check_ ? log_csv_check_->isChecked() : true;
+}
+
+bool SettingsDialog::selected_separate_folders_enabled() const {
+    return separate_folders_check_ ? separate_folders_check_->isChecked() : true;
 }
 
 } // namespace sabit::ui
