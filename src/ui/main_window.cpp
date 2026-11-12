@@ -10,6 +10,7 @@
 #include "src/ui/dialogs/session_summary_dialog.h"
 #include "src/ui/dialogs/export_dialog.h"
 #include "src/ui/dialogs/configure_capture_dialog.h"
+#include "src/ui/dialogs/report_issue_dialog.h"
 #include "src/astro/criteria.h"
 #include "src/astro/plate_solver.h"
 #include "src/imaging/io/fits_writer.h"
@@ -322,7 +323,7 @@ void MainWindow::create_menus() {
                   : "You are running the latest version of Sabit (v1.0.0 Native C++20 / Qt6).");
     });
 
-    act_report_issue_ = m_help_->addAction(tr_str("report_issue"), this, &MainWindow::on_export_diagnostic_clicked);
+    act_report_issue_ = m_help_->addAction(tr_str("report_issue"), this, &MainWindow::on_report_issue_clicked);
 
     m_help_->addSeparator();
     act_about_ = m_help_->addAction(tr_str("about"), this, &MainWindow::on_about_clicked);
@@ -1791,6 +1792,11 @@ void MainWindow::on_snapshot_clicked() {
 
 void MainWindow::on_export_diagnostic_clicked() {
     ExportDialog dlg(controller_, this);
+    dlg.exec();
+}
+
+void MainWindow::on_report_issue_clicked() {
+    ReportIssueDialog dlg(controller_, this);
     dlg.exec();
 }
 

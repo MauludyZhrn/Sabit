@@ -19,6 +19,7 @@ public:
 private slots:
     void on_browse();
     void on_export();
+    void on_send_email();
 
 private:
     app::AppController& controller_;
@@ -26,6 +27,7 @@ private:
     QCheckBox* redact_coords_check_{nullptr};
     QLabel* status_lbl_{nullptr};
     QPushButton* export_btn_{nullptr};
+    QPushButton* email_btn_{nullptr};
 };
 
 } // namespace sabit::ui

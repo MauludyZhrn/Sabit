@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QMessageBox>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QVBoxLayout>
 
 namespace sabit::ui {
@@ -66,6 +67,12 @@ ExportDialog::ExportDialog(app::AppController& controller, QWidget* parent)
 
     auto* btn_layout = new QHBoxLayout();
     btn_layout->setSpacing(8);
+
+    email_btn_ = new QPushButton(is_id ? "Kirim via Email ke Pengembang..." : "Email to Developer...", this);
+    email_btn_->setToolTip(is_id ? "Buka email untuk mengirim berkas diagnostik ke mauludyzahron.24@gmail.com"
+                                 : "Open email client to send diagnostics to mauludyzahron.24@gmail.com");
+    connect(email_btn_, &QPushButton::clicked, this, &ExportDialog::on_send_email);
+
     auto* close_btn = new QPushButton(tr_str("cancel"), this);
     connect(close_btn, &QPushButton::clicked, this, &QDialog::reject);
 
@@ -75,10 +82,46 @@ ExportDialog::ExportDialog(app::AppController& controller, QWidget* parent)
     export_btn_->setCursor(Qt::PointingHandCursor);
     connect(export_btn_, &QPushButton::clicked, this, &ExportDialog::on_export);
 
+    btn_layout->addWidget(email_btn_);
     btn_layout->addStretch();
     btn_layout->addWidget(close_btn);
     btn_layout->addWidget(export_btn_);
     layout->addLayout(btn_layout);
+}
+
+void ExportDialog::on_send_email() {
+    bool is_id = (Translator::instance().language() == Language::Indonesian);
+    QString dest = dest_path_edit_->text().trimmed();
+    if (dest.isEmpty()) {
+        dest = "diagnostic_report";
+    }
+
+    bool mask = redact_coords_check_->isChecked();
+    controller_.export_diagnostic(dest.toStdString(), mask);
+
+    QUrl mail_url("mailto:mauludyzahron.24@gmail.com");
+    QUrlQuery query;
+    query.addQueryItem("subject", "[Sabit Diagnostics Package] Observation Audit Report");
+    QString body = QString(
+        "=== SABIT DIAGNOSTICS PACKAGE SUBMISSION ===\n"
+        "Developer Recipient: mauludyzahron.24@gmail.com\n\n"
+        "Export Path: %1\n"
+        "Coordinates Redacted: %2\n\n"
+        "Please attach the generated diagnostic files (session.json, session.log, detections.csv, settings.json)\n"
+        "or directory from the above export path to this email.\n"
+        "============================================")
+        .arg(dest, mask ? "Yes" : "No");
+    query.addQueryItem("body", body);
+    mail_url.setQuery(query);
+
+    QDesktopServices::openUrl(mail_url);
+
+    QMessageBox::information(this,
+        is_id ? "Kirim Paket Diagnostik via Email" : "Email Diagnostics Package",
+        is_id ? "Klien email Anda sedang dibuka untuk mengirim laporan ke mauludyzahron.24@gmail.com.\n\n"
+                "Silakan lampirkan berkas paket diagnostik dari lokasi:\n" + dest + "\nke dalam email tersebut."
+              : "Opening email client to send report to mauludyzahron.24@gmail.com.\n\n"
+                "Please attach the diagnostic files from:\n" + dest + "\nto the email draft.");
 }
 
 void ExportDialog::on_browse() {

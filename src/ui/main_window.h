@@ -45,6 +45,7 @@ private slots:
     void on_plate_solve_clicked();
     void on_export_pdf_clicked();
     void on_export_diagnostic_clicked();
+    void on_report_issue_clicked();
     void on_open_settings_clicked();
     void on_open_calibration_wizard();
     void on_preset_daylight();

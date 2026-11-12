@@ -19,6 +19,8 @@
 #include "src/ui/widgets/marquee_label.h"
 #include "src/ui/main_window.h"
 #include "src/ui/dialogs/configure_capture_dialog.h"
+#include "src/ui/dialogs/report_issue_dialog.h"
+#include "src/ui/dialogs/export_dialog.h"
 
 using namespace sabit;
 
@@ -294,6 +296,15 @@ void test_ui_offscreen_lifecycle(int argc, char** argv) {
         std::filesystem::remove_all("Captures_TargetTest");
     }
     std::cout << "  PASS: Target Name & Configure Capture Dialog verified." << std::endl;
+
+    // Test 8: Report Issue Dialog & Diagnostics Export
+    std::cout << "[Test 8] Report Issue Dialog..." << std::endl;
+    ui::ReportIssueDialog report_dlg(controller);
+    TEST_CHECK(report_dlg.windowTitle().contains("Laporkan") || report_dlg.windowTitle().contains("Report"), "ReportIssueDialog title check");
+
+    ui::ExportDialog exp_dlg(controller);
+    TEST_CHECK(!exp_dlg.windowTitle().isEmpty(), "ExportDialog title check");
+    std::cout << "  PASS: Report Issue Dialog verified." << std::endl;
 }
 
 int main(int argc, char** argv) {
