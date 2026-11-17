@@ -1,8 +1,8 @@
 {
-    "version": "1.0.0",
+    "version": "1.0.1",
     "release_date": "2026-11-17",
-    "download_url": "https://github.com/MauludyZhrn/Sabit/releases/latest/download/Sabit-Setup-v1.0.0-x64.exe",
+    "download_url": "https://github.com/MauludyZhrn/Sabit/releases/latest/download/Sabit-Setup-v1.0.1-x64.exe",
     "release_page_url": "https://github.com/MauludyZhrn/Sabit/releases/latest",
-    "release_notes_id": "Rilis Sabit v1.0.0: Sistem observasi rukyatul hilal presisi tinggi dengan AI ONNX, debayering sensor RGB otomatis, kalibrasi Dark/Flat, pemeriksa pembaruan otomatis, dan pengiriman laporan masalah langsung tanpa login.",
-    "release_notes_en": "Sabit v1.0.0 Release: High-precision lunar crescent sighting system with ONNX AI detection, automatic RGB sensor debayering, Dark/Flat calibration, automatic update checker, and direct login-free issue reporting."
+    "release_notes_id": "## Pembaruan Utama Sabit v1.0.1\n\n### Peningkatan Antarmuka & Diagnostik\n- **Terminal Log Berwarna & Font Monospace**: Panel `Live Observation Log` kini menampilkan warna sintaks ala terminal (`INFO`, `WARN`, `ERROR`, timestamp, serta telemetri `key=value`) dengan font monospace `Cascadia Mono` / `Consolas` yang tegas dan mudah dibaca.\n- **Tampilan Catatan Rilis Modern**: Dialog `Check for Updates` sekarang merender Markdown dengan tata letak terstruktur, lencana rilis, daftar perubahan rapi, dan dukungan tautan klik langsung.\n\n### Stabilitas & Pelaporan\n- **Pelaporan Masalah Tanpa Login**: Dukungan kirim laporan langsung via email pengembang dari `Help -> Report Issue` tanpa perlu membuka akun email eksternal.\n- **Sinkronisasi Startup**: Pencatatan log awal sistem, lokasi observasi, dan status AI langsung ditampilkan saat aplikasi dimulai.",
+    "release_notes_en": "## Sabit v1.0.1 Highlights\n\n### UI & Diagnostics Improvements\n- **Color-Coded Terminal Log & Monospace Typography**: The `Live Observation Log` panel now features ANSI-style syntax highlighting (`INFO`, `WARN`, `ERROR`, timestamps, and `key=value` telemetry) rendered in crisp `Cascadia Mono` / `Consolas` monospace font.\n- **Redesigned Release Notes View**: `Check for Updates` now renders rich Markdown release notes with structured sections, metadata badges, bullet lists, and clickable links.\n\n### Stability & Reporting\n- **Login-Free Issue Reporting**: Direct diagnostic and bug submission via `Help -> Report Issue` without requiring desktop mail login.\n- **Startup Telemetry Logs**: Immediate system, ephemeris site, and AI readiness logs printed on startup."
 }

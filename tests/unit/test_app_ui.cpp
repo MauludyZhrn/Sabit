@@ -22,6 +22,7 @@
 #include "src/ui/dialogs/report_issue_dialog.h"
 #include "src/ui/dialogs/export_dialog.h"
 #include "src/ui/dialogs/update_dialog.h"
+#include "src/ui/panels/live_log_panel.h"
 
 using namespace sabit;
 
@@ -346,12 +347,26 @@ void test_ui_offscreen_lifecycle(int argc, char** argv) {
     ui::UpdateDialog dlg_available(m_info);
     TEST_CHECK(!dlg_available.windowTitle().isEmpty(), "UpdateDialog (available) title check");
 
+    QString formatted_html = ui::UpdateDialog::format_release_notes_html(
+        "## Release Notes\n- **Feature**: `TerminalLogView` added", m_info, false);
+    TEST_CHECK(formatted_html.contains("<h3") && formatted_html.contains("<ul") &&
+               formatted_html.contains("<b") && formatted_html.contains("<code"),
+               "Formatted release notes must contain rendered Markdown HTML tags");
+
     m_info.update_available = false;
-    m_info.latest_version = "1.0.0";
+    m_info.latest_version = "1.0.1";
     ui::UpdateDialog dlg_uptodate(m_info);
     TEST_CHECK(!dlg_uptodate.windowTitle().isEmpty(), "UpdateDialog (up to date) title check");
 
-    std::cout << "  PASS: Check for Updates & UpdateDialog verified." << std::endl;
+    ui::LiveLogPanel log_panel;
+    TEST_CHECK(log_panel.log_view() != nullptr, "LiveLogPanel log view must exist");
+    TEST_CHECK(log_panel.log_view()->objectName() == "TerminalLogView", "LiveLogPanel must use TerminalLogView objectName");
+    log_panel.append_log_line("[12:00:00] [INFO ] [System] Version=v1.0.1 FPS=30.0");
+    log_panel.append_log_line("[12:00:01] [WARN ] [UVC] Frame drop detected Count=1");
+    log_panel.append_log_line("[12:00:02] [ERROR] [AI] Test error telemetry Code=500");
+    TEST_CHECK(log_panel.log_view()->toPlainText().contains("Version=v1.0.1"), "LiveLogPanel append check");
+
+    std::cout << "  PASS: Check for Updates, Release Notes HTML & Terminal LiveLogPanel verified." << std::endl;
 }
 
 int main(int argc, char** argv) {
