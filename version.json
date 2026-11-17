@@ -1,0 +1,8 @@
+{
+    "version": "1.0.0",
+    "release_date": "2026-11-17",
+    "download_url": "https://github.com/MauludyZhrn/Sabit/releases/latest/download/Sabit-Setup-v1.0.0-x64.exe",
+    "release_page_url": "https://github.com/MauludyZhrn/Sabit/releases/latest",
+    "release_notes_id": "Rilis Sabit v1.0.0: Sistem observasi rukyatul hilal presisi tinggi dengan AI ONNX, debayering sensor RGB otomatis, kalibrasi Dark/Flat, pemeriksa pembaruan otomatis, dan pengiriman laporan masalah langsung tanpa login.",
+    "release_notes_en": "Sabit v1.0.0 Release: High-precision lunar crescent sighting system with ONNX AI detection, automatic RGB sensor debayering, Dark/Flat calibration, automatic update checker, and direct login-free issue reporting."
+}

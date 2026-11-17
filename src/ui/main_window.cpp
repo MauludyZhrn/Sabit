@@ -11,6 +11,7 @@
 #include "src/ui/dialogs/export_dialog.h"
 #include "src/ui/dialogs/configure_capture_dialog.h"
 #include "src/ui/dialogs/report_issue_dialog.h"
+#include "src/ui/dialogs/update_dialog.h"
 #include "src/astro/criteria.h"
 #include "src/astro/plate_solver.h"
 #include "src/imaging/io/fits_writer.h"
@@ -35,10 +36,14 @@
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QApplication>
 #include <QFile>
 #include <QFileInfo>
+#include <QMetaObject>
+#include <QPointer>
 #include <filesystem>
 #include <iostream>
+#include <thread>
 
 namespace sabit::ui {
 
@@ -109,6 +114,20 @@ MainWindow::MainWindow(app::AppController& controller, QWidget* parent)
     }
     controller_.init_ai(model_p, manifest_p);
     load_persisted_settings();
+
+    if (QGuiApplication::platformName() != "offscreen") {
+        QTimer::singleShot(3000, this, [this]() {
+            if (auto_check_updates_) {
+                on_check_updates_clicked(true);
+            }
+        });
+    }
+}
+
+MainWindow::~MainWindow() {
+    if (alive_flag_) {
+        alive_flag_->store(false);
+    }
 }
 
 QIcon MainWindow::get_asset_icon(const QString& filename) const {
@@ -316,11 +335,7 @@ void MainWindow::create_menus() {
     m_help_->addSeparator();
 
     act_check_updates_ = m_help_->addAction(tr_str("check_updates"), this, [this]() {
-        bool is_id = (Translator::instance().language() == Language::Indonesian);
-        QMessageBox::information(this,
-            is_id ? "Periksa Pembaruan" : "Check for Updates",
-            is_id ? "Anda telah menggunakan Sabit versi terbaru (v1.0.0 Native C++20 / Qt6)."
-                  : "You are running the latest version of Sabit (v1.0.0 Native C++20 / Qt6).");
+        on_check_updates_clicked(false);
     });
 
     act_report_issue_ = m_help_->addAction(tr_str("report_issue"), this, &MainWindow::on_report_issue_clicked);
@@ -1800,6 +1815,40 @@ void MainWindow::on_report_issue_clicked() {
     dlg.exec();
 }
 
+void MainWindow::on_check_updates_clicked(bool silent_startup) {
+    if (update_check_in_progress_) return;
+    update_check_in_progress_ = true;
+
+    bool is_id = (Translator::instance().language() == Language::Indonesian);
+    if (!silent_startup && video_widget_) {
+        video_widget_->show_toast(is_id ? "Memeriksa pembaruan Sabit..." : "Checking for Sabit updates...");
+    }
+
+    QPointer<MainWindow> self(this);
+    auto alive = alive_flag_;
+    QString manifest_url = custom_update_manifest_url_;
+
+    std::thread([self, alive, manifest_url, silent_startup]() {
+        UpdateInfo info = UpdateDialog::fetch_latest_update_sync(manifest_url);
+        if (!alive || !alive->load()) return;
+
+        QMetaObject::invokeMethod(qApp, [self, alive, info, silent_startup]() {
+            if (!alive || !alive->load() || !self) return;
+            self->update_check_in_progress_ = false;
+
+            if (silent_startup) {
+                if (info.check_succeeded && info.update_available) {
+                    UpdateDialog dlg(info, self);
+                    dlg.exec();
+                }
+            } else {
+                UpdateDialog dlg(info, self);
+                dlg.exec();
+            }
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
 void MainWindow::load_persisted_settings() {
     QString app_dir = QCoreApplication::applicationDirPath();
     QStringList candidates = {
@@ -1869,6 +1918,20 @@ void MainWindow::load_persisted_settings() {
         processing_panel_->set_align_enabled(root["phase_correlation_align"].toBool(true));
         controller_.enable_stack_alignment(root["phase_correlation_align"].toBool(true));
     }
+
+    // 5. Update checker settings
+    if (root.contains("general") && root["general"].isObject()) {
+        QJsonObject gen_obj = root["general"].toObject();
+        if (gen_obj.contains("auto_check_updates")) {
+            auto_check_updates_ = gen_obj["auto_check_updates"].toBool(true);
+        }
+    }
+    if (root.contains("auto_check_updates")) {
+        auto_check_updates_ = root["auto_check_updates"].toBool(true);
+    }
+    if (root.contains("update_manifest_url")) {
+        custom_update_manifest_url_ = root["update_manifest_url"].toString().trimmed();
+    }
 }
 
 void MainWindow::save_persisted_settings() {
@@ -1880,7 +1943,12 @@ void MainWindow::save_persisted_settings() {
     gen["language"] = (Translator::instance().language() == Language::Indonesian ? "id" : "en");
     gen["theme"] = (ThemeManager::instance().current_theme() == ThemeType::NightRed ? "night_red" : "dark");
     gen["prevent_sleep"] = true;
+    gen["auto_check_updates"] = auto_check_updates_;
     root["general"] = gen;
+    root["auto_check_updates"] = auto_check_updates_;
+    if (!custom_update_manifest_url_.isEmpty()) {
+        root["update_manifest_url"] = custom_update_manifest_url_;
+    }
 
     // Site
     auto s = controller_.observer_site();

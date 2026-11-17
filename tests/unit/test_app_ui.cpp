@@ -21,6 +21,7 @@
 #include "src/ui/dialogs/configure_capture_dialog.h"
 #include "src/ui/dialogs/report_issue_dialog.h"
 #include "src/ui/dialogs/export_dialog.h"
+#include "src/ui/dialogs/update_dialog.h"
 
 using namespace sabit;
 
@@ -298,13 +299,59 @@ void test_ui_offscreen_lifecycle(int argc, char** argv) {
     std::cout << "  PASS: Target Name & Configure Capture Dialog verified." << std::endl;
 
     // Test 8: Report Issue Dialog & Diagnostics Export
-    std::cout << "[Test 8] Report Issue Dialog..." << std::endl;
+    std::cout << "[Test 8] Report Issue Dialog & Direct Submission Support..." << std::endl;
     ui::ReportIssueDialog report_dlg(controller);
     TEST_CHECK(report_dlg.windowTitle().contains("Laporkan") || report_dlg.windowTitle().contains("Report"), "ReportIssueDialog title check");
+    QString logs_excerpt = ui::ReportIssueDialog::read_recent_session_logs(controller);
+    (void)logs_excerpt;
 
     ui::ExportDialog exp_dlg(controller);
     TEST_CHECK(!exp_dlg.windowTitle().isEmpty(), "ExportDialog title check");
     std::cout << "  PASS: Report Issue Dialog verified." << std::endl;
+
+    // Test 9: Check for Updates & UpdateDialog
+    std::cout << "[Test 9] Check for Updates & UpdateDialog..." << std::endl;
+    TEST_CHECK(ui::UpdateDialog::compare_versions("1.0.1", "1.0.0") > 0, "1.0.1 must be newer than 1.0.0");
+    TEST_CHECK(ui::UpdateDialog::compare_versions("v1.2.0", "1.1.9") > 0, "v1.2.0 must be newer than 1.1.9");
+    TEST_CHECK(ui::UpdateDialog::compare_versions("1.0.0", "v1.0.0") == 0, "1.0.0 must equal v1.0.0");
+    TEST_CHECK(ui::UpdateDialog::compare_versions("0.9.9", "1.0.0") < 0, "0.9.9 must be older than 1.0.0");
+
+    QByteArray mock_manifest = R"({
+        "version": "1.1.0",
+        "release_date": "2026-12-01",
+        "download_url": "https://github.com/MauludyZhrn/Sabit/releases/download/v1.1.0/Sabit-Setup-v1.1.0-x64.exe",
+        "release_page_url": "https://github.com/MauludyZhrn/Sabit/releases/tag/v1.1.0",
+        "release_notes_id": "Pembaruan uji coba",
+        "release_notes_en": "Test release update"
+    })";
+    auto m_info = ui::UpdateDialog::parse_version_manifest_json(mock_manifest, "1.0.0");
+    TEST_CHECK(m_info.check_succeeded, "Manifest JSON parse should succeed");
+    TEST_CHECK(m_info.update_available, "1.1.0 manifest should trigger update_available");
+    TEST_CHECK(m_info.latest_version == "1.1.0", "Latest version should be 1.1.0");
+
+    QByteArray mock_gh = R"({
+        "tag_name": "v1.2.0",
+        "published_at": "2026-12-15T10:00:00Z",
+        "html_url": "https://github.com/MauludyZhrn/Sabit/releases/tag/v1.2.0",
+        "body": "Major update",
+        "assets": [
+            { "name": "Sabit-Setup-v1.2.0-x64.exe", "browser_download_url": "https://github.com/MauludyZhrn/Sabit/releases/download/v1.2.0/Sabit-Setup-v1.2.0-x64.exe" }
+        ]
+    })";
+    auto gh_info = ui::UpdateDialog::parse_github_release_json(mock_gh, "1.0.0");
+    TEST_CHECK(gh_info.check_succeeded, "GitHub release JSON parse should succeed");
+    TEST_CHECK(gh_info.update_available, "v1.2.0 release should trigger update_available");
+    TEST_CHECK(gh_info.download_url.endsWith("Sabit-Setup-v1.2.0-x64.exe"), "Installer .exe asset should be extracted");
+
+    ui::UpdateDialog dlg_available(m_info);
+    TEST_CHECK(!dlg_available.windowTitle().isEmpty(), "UpdateDialog (available) title check");
+
+    m_info.update_available = false;
+    m_info.latest_version = "1.0.0";
+    ui::UpdateDialog dlg_uptodate(m_info);
+    TEST_CHECK(!dlg_uptodate.windowTitle().isEmpty(), "UpdateDialog (up to date) title check");
+
+    std::cout << "  PASS: Check for Updates & UpdateDialog verified." << std::endl;
 }
 
 int main(int argc, char** argv) {
