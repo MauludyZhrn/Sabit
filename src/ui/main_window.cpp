@@ -2157,14 +2157,14 @@ void MainWindow::on_about_clicked() {
     if (is_id) {
         QMessageBox::about(this, "Tentang Sabit",
             "<h3>Sabit \xe2\x80\x94 Presisi Otomatis Pengamatan Hilal</h3>"
-            "<p>Versi 1.0.1 (Native C++20 / Qt6)</p>"
+            "<p>Versi 1.1.0 (Native C++20 / Qt6)</p>"
             "<p>Aplikasi observasi dan pembuktian rukyatul hilal terintegrasi dengan pemrosesan citra 16-bit, "
             "plate solving astrometri bintang, kalkulasi astronomi toposentrik presisi, dan deteksi kecerdasan buatan (YOLO AI) berbasis ONNX Runtime.</p>"
             "<p>Dikembangkan untuk mendukung sidang isbat dan riset ilmu falak di Indonesia.</p>");
     } else {
         QMessageBox::about(this, "About Sabit",
             "<h3>Sabit \xe2\x80\x94 Automated Precision for Lunar Sighting</h3>"
-            "<p>Version 1.0.1 (Native C++20 / Qt6)</p>"
+            "<p>Version 1.1.0 (Native C++20 / Qt6)</p>"
             "<p>Integrated crescent sighting observation application with 16-bit image processing, "
             "astrometric star plate solving, precision topocentric astronomical calculations, and ONNX Runtime YOLO AI detection.</p>"
             "<p>Developed for astronomical research and lunar crescent verification.</p>");

@@ -1,7 +1,7 @@
-﻿# Catatan Rilis Versi Uji Coba: SABIT v1.0.0 (Research Test Build)
+﻿# Catatan Rilis Versi Uji Coba: SABIT v1.1.0 (Research Test Build)
 
-Aplikasi: SABIT â€” Scientific Astronomical Imaging & Observation Toolkit
-Versi: 1.0.0 (Release Build x64)
+Aplikasi: SABIT -- Scientific Astronomical Imaging & Observation Toolkit
+Versi: 1.1.0 (Release Build x64)
 Arsitektur: Native C++20 / Qt 6.8 (Windows 64-bit)
 Tujuan: Pengujian Lapangan dan Pengumpulan Data Riset Tesis Magister Ilmu Falak
 Pengembang: Mauludy Zahron
@@ -16,7 +16,7 @@ Fokus evaluasi meliputi:
 1. **Pengujian Antarmuka & Ergonomi Pengamatan**: Keterbacaan tampilan saat observasi senja, efektivitas tema gelap (Dark) dan penglihatan malam (Night Vision Red).
 2. **Kalkulasi Efemeris & Kriteria Visibilitas**: Perhitungan toposentrik posisi Bulan dan Matahari, waktu terbenam, serta evaluasi kriteria MABIMS baru (ketinggian >= 3 derajat, elongasi >= 6.4 derajat).
 3. **Pemrosesan Citra & Live Stacking**: Responsivitas peregangan kontras MTF otomatis, CLAHE, unsharp mask, dan perataan pergeseran fase (phase correlation).
-4. **Deteksi Hilal Cerdas (ONNX Runtime)**: Pengenalan citra sabit muda berbantuan kecerdasan buatan dan visualisasi telemetry.
+4. **Deteksi Hilal Cerdas (ONNX Runtime Dual-Model V2)**: Pengenalan citra sabit muda berbantuan kecerdasan buatan menggunakan dua profil model terintegrasi (`YOLOv8s` Primary conf `0.30` dan `YOLOv8n` Lightweight Alternative conf `0.75`) serta visualisasi telemetry.
 5. **Perekaman Data Ilmiah**: Penyimpanan citra 16-bit berformat FITS lengkap dengan WCS header, video AVI/MP4, dan ekspor lembar verifikasi laporan PDF resmi.
 
 ---

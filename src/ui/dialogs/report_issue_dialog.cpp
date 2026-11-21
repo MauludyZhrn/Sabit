@@ -246,7 +246,7 @@ void ReportIssueDialog::setup_ui() {
 
 void ReportIssueDialog::populate_environment_info() {
     QStringList lines;
-    lines << "Application: Sabit v1.0.1 (Native C++20 / Qt 6.8.0 x64)";
+    lines << "Application: Sabit v1.1.0 (Native C++20 / Qt 6.8.0 x64)";
     lines << QString("Operating System: %1 (%2)").arg(QSysInfo::prettyProductName(), QSysInfo::currentCpuArchitecture());
     lines << QString("Report Generated: %1 UTC").arg(QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss"));
 
@@ -282,8 +282,12 @@ void ReportIssueDialog::populate_environment_info() {
     }
 
     // AI & Storage
-    lines << QString("AI Detection Sensor: %1 (Confidence Threshold: 0.40)")
-                 .arg(controller_.is_ai_enabled() ? "Active" : "Disabled");
+    auto ai_prof = controller_.active_ai_profile();
+    lines << QString("AI Detection Sensor: %1 (Model: %2 | Conf: %3 | NMS: %4)")
+                 .arg(controller_.is_ai_enabled() ? "Active" : "Disabled")
+                 .arg(QString::fromStdString(ai_prof.display_name))
+                 .arg(controller_.ai_conf_threshold(), 0, 'f', 2)
+                 .arg(controller_.ai_nms_threshold(), 0, 'f', 2);
     lines << QString("Captures Directory: %1").arg(QString::fromStdString(controller_.captures_dir()));
 
     // Observer Site
@@ -346,7 +350,7 @@ QString ReportIssueDialog::generate_email_subject() const {
         subj = "Technical Report";
     }
 
-    return QString("[Sabit v1.0.1] [%1] %2").arg(tag, subj);
+    return QString("[Sabit v1.1.0] [%1] %2").arg(tag, subj);
 }
 
 QString ReportIssueDialog::build_report_text(bool for_email) const {
@@ -403,7 +407,7 @@ DirectReportResult ReportIssueDialog::send_direct_report_sync(
         : custom_webhook_url.trimmed();
 
     QJsonObject payload;
-    payload["_subject"] = subject.isEmpty() ? QString("[Sabit v1.0.1] Technical Issue Report") : subject;
+    payload["_subject"] = subject.isEmpty() ? QString("[Sabit v1.1.0] Technical Issue Report") : subject;
     payload["_template"] = "table";
     payload["_captcha"] = "false";
 

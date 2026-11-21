@@ -5,9 +5,9 @@
 ; ====================================================================
 
 #define MyAppName "SABIT"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Mauludy Zahron"
-#define MyAppURL "https://github.com/MauludyZhrn/Sabit"
+#define MyAppURL "https://sabit-landing-page.vercel.app/"
 #define MyAppExeName "Sabit.exe"
 #define MyAppAssocName "SABIT Session Data"
 #define MyAppAssocExt ".sabit"
@@ -22,7 +22,7 @@ AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
-AppUpdatesURL={#MyAppURL}
+AppUpdatesURL=https://github.com/MauludyZhrn/Sabit/releases
 
 ; Per-user installation (no admin elevation required)
 DefaultDirName={localappdata}\Programs\Sabit
@@ -36,7 +36,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 
 ; Distribution output
 OutputDir=..\dist
-OutputBaseFilename=Sabit-Setup-v1.0.1-x64
+OutputBaseFilename=Sabit-Setup-v1.1.0-x64
 SetupIconFile=..\assets\logo.ico
 UninstallDisplayIcon={app}\assets\logo.ico
 
@@ -59,7 +59,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Main application binaries and assets from staging package
-Source: "..\dist\package\Sabit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\package\Sabit\*"; DestDir: "{app}"; Excludes: "Captures\*,Captures,*.log"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Testing and documentation package
 Source: "..\docs\testing\*"; DestDir: "{app}\docs\testing"; Flags: ignoreversion recursesubdirs createallsubdirs
 

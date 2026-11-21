@@ -11,7 +11,7 @@
 #include <atomic>
 #include <thread>
 
-#define SABIT_CURRENT_VERSION "1.0.1"
+#define SABIT_CURRENT_VERSION "1.1.0"
 
 namespace sabit::ui {
 

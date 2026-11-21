@@ -376,17 +376,17 @@ void test_ui_offscreen_lifecycle(int argc, char** argv) {
                "Formatted release notes must contain rendered Markdown HTML tags");
 
     m_info.update_available = false;
-    m_info.latest_version = "1.0.1";
+    m_info.latest_version = "1.1.0";
     ui::UpdateDialog dlg_uptodate(m_info);
     TEST_CHECK(!dlg_uptodate.windowTitle().isEmpty(), "UpdateDialog (up to date) title check");
 
     ui::LiveLogPanel log_panel;
     TEST_CHECK(log_panel.log_view() != nullptr, "LiveLogPanel log view must exist");
     TEST_CHECK(log_panel.log_view()->objectName() == "TerminalLogView", "LiveLogPanel must use TerminalLogView objectName");
-    log_panel.append_log_line("[12:00:00] [INFO ] [System] Version=v1.0.1 FPS=30.0");
+    log_panel.append_log_line("[12:00:00] [INFO ] [System] Version=v1.1.0 FPS=30.0");
     log_panel.append_log_line("[12:00:01] [WARN ] [UVC] Frame drop detected Count=1");
     log_panel.append_log_line("[12:00:02] [ERROR] [AI] Test error telemetry Code=500");
-    TEST_CHECK(log_panel.log_view()->toPlainText().contains("Version=v1.0.1"), "LiveLogPanel append check");
+    TEST_CHECK(log_panel.log_view()->toPlainText().contains("Version=v1.1.0"), "LiveLogPanel append check");
 
     std::cout << "  PASS: Check for Updates, Release Notes HTML & Terminal LiveLogPanel verified." << std::endl;
 }
