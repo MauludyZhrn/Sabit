@@ -5,6 +5,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDoubleSpinBox>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
@@ -20,15 +21,17 @@ class SettingsDialog : public QDialog {
 public:
     explicit SettingsDialog(
         const astro::Site& current_site = astro::Site{"Semarang", -6.9932, 110.4203, 50.0, 7.0, true},
-        double current_ai_conf = 0.40,
+        double current_ai_conf = 0.30,
         bool align_enabled = true,
         const QString& current_capture_dir = "Captures",
+        const QString& current_ai_model = "yolov8s",
         QWidget* parent = nullptr);
     ~SettingsDialog() override = default;
 
     [[nodiscard]] ThemeType selected_theme() const;
     [[nodiscard]] Language selected_language() const;
     [[nodiscard]] astro::Site selected_site() const;
+    [[nodiscard]] QString selected_ai_model() const;
     [[nodiscard]] double selected_ai_conf() const;
     [[nodiscard]] bool selected_align_enabled() const;
     [[nodiscard]] QString selected_default_format() const;
@@ -37,6 +40,9 @@ public:
     [[nodiscard]] QString selected_filename_template() const;
     [[nodiscard]] bool selected_log_csv_enabled() const;
     [[nodiscard]] bool selected_separate_folders_enabled() const;
+
+    [[nodiscard]] QComboBox* ai_model_combo() const { return ai_model_combo_; }
+    [[nodiscard]] QDoubleSpinBox* ai_conf_spin() const { return ai_conf_spin_; }
 
 private slots:
     void on_reset_defaults();
@@ -73,9 +79,11 @@ private:
     QDoubleSpinBox* pressure_spin_{nullptr};
     QDoubleSpinBox* temp_spin_{nullptr};
 
-    // Tab 5: Hardware/Guiding
+    // Tab 5: Hardware & AI
     QComboBox* align_mode_combo_{nullptr};
     QDoubleSpinBox* fov_spin_{nullptr};
+    QComboBox* ai_model_combo_{nullptr};
+    QLabel* ai_model_info_lbl_{nullptr};
     QDoubleSpinBox* ai_conf_spin_{nullptr};
     QCheckBox* auto_align_check_{nullptr};
 

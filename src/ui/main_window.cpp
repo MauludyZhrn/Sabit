@@ -122,6 +122,18 @@ MainWindow::MainWindow(app::AppController& controller, QWidget* parent)
     load_persisted_settings();
 
     auto active_prof = controller_.active_ai_profile();
+    if (btn_ai_toggle_) {
+        bool is_id_boot = (Translator::instance().language() == Language::Indonesian);
+        btn_ai_toggle_->setToolTip(is_id_boot
+            ? QString("Nyalakan / Matikan Deteksi AI Real-time\nModel aktif: %1 (Conf %2 | NMS %3)\nGanti model di File -> Settings -> Hardware & AI")
+                  .arg(QString::fromStdString(active_prof.display_name))
+                  .arg(controller_.ai_conf_threshold(), 0, 'f', 2)
+                  .arg(controller_.ai_nms_threshold(), 0, 'f', 2)
+            : QString("Toggle Real-time AI Hilal Detection Pipeline\nActive Model: %1 (Conf %2 | NMS %3)\nSwitch models in File -> Settings -> Hardware & AI")
+                  .arg(QString::fromStdString(active_prof.display_name))
+                  .arg(controller_.ai_conf_threshold(), 0, 'f', 2)
+                  .arg(controller_.ai_nms_threshold(), 0, 'f', 2));
+    }
     auto boot_site = controller_.observer_site();
     SABIT_LOG_INFO("[System] Sabit Initialized: Version=v" + std::string(SABIT_CURRENT_VERSION) +
                    " Arch=x64 Engine=NativeQt6");
@@ -687,28 +699,13 @@ void MainWindow::create_toolbars() {
     // ==========================================
     // GROUP 4: AI Hilal Detection Subsystem
     // ==========================================
-    ai_model_combo_ = new QComboBox(tb_container);
-    ai_model_combo_->setObjectName("AiModelCombo");
-    ai_model_combo_->addItem("YOLOv8s (Primary - Recommended)", "yolov8s");
-    ai_model_combo_->addItem("YOLOv8n (Lightweight Alternative)", "yolov8n");
-    ai_model_combo_->setCurrentIndex(0);
-    ai_model_combo_->setFixedHeight(24);
-    ai_model_combo_->setMinimumWidth(196);
-    ai_model_combo_->setToolTip(is_id
-        ? "Pilih Model Deteksi Hilal: YOLOv8s (Akurat, Conf 0.30) atau YOLOv8n (Ringan, Conf 0.75)"
-        : "Select Hilal Detection Model: YOLOv8s (Primary, Conf 0.30) or YOLOv8n (Lightweight, Conf 0.75)");
-    connect(ai_model_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
-        if (ai_model_combo_) {
-            on_ai_model_changed(ai_model_combo_->currentData().toString());
-        }
-    });
-    hbox->addWidget(ai_model_combo_, 0, Qt::AlignVCenter);
-
     btn_ai_toggle_ = new QToolButton(tb_container);
     btn_ai_toggle_->setObjectName("AiToggle");
     btn_ai_toggle_->setIcon(themed_icon("sync.svg", colors.text, 14));
     btn_ai_toggle_->setText(tr_str("ai_off"));
-    btn_ai_toggle_->setToolTip(is_id ? "Nyalakan / Matikan Deteksi AI Real-time" : "Toggle Real-time AI Hilal Detection Pipeline");
+    btn_ai_toggle_->setToolTip(is_id
+        ? "Nyalakan / Matikan Deteksi AI Real-time\nUbah model AI (YOLOv8s / YOLOv8n) di File -> Settings -> Hardware & AI"
+        : "Toggle Real-time AI Hilal Detection Pipeline\nSwitch AI model (YOLOv8s / YOLOv8n) in File -> Settings -> Hardware & AI");
     btn_ai_toggle_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     btn_ai_toggle_->setCursor(Qt::PointingHandCursor);
     btn_ai_toggle_->setFixedHeight(24);
@@ -776,7 +773,7 @@ void MainWindow::setup_central_layout() {
     // Right Sidebar Wrapper (Pinned Header + Scrollable Cards)
     auto right_sidebar = new QWidget(this);
     right_sidebar->setObjectName("RightContainer");
-    right_sidebar->setMinimumWidth(365);
+    right_sidebar->setMinimumWidth(380);
     right_sidebar->setMaximumWidth(520);
     auto sidebar_vbox = new QVBoxLayout(right_sidebar);
     sidebar_vbox->setContentsMargins(0, 0, 0, 0);
@@ -812,35 +809,35 @@ void MainWindow::setup_central_layout() {
     right_layout->setContentsMargins(6, 2, 6, 6);
     right_layout->setSpacing(5);
 
-    // 1. Live Histogram (Card 1)
-    hist_sec_ = new CollapsibleSection(tr_str("live_histogram"), right_container);
-    histogram_widget_ = new HistogramWidget(hist_sec_);
-    hist_sec_->set_content(histogram_widget_);
-    right_layout->addWidget(hist_sec_);
-
-    // 2. Astronomy and Ephemeris (Card 2)
+    // 1. Astronomy and Ephemeris (Card 1)
     eph_sec_ = new CollapsibleSection(tr_str("astronomy_ephemeris"), right_container);
     ephemeris_panel_ = new EphemerisPanel(eph_sec_);
     eph_sec_->set_content(ephemeris_panel_);
     right_layout->addWidget(eph_sec_);
 
-    // 3. Camera and Exposure (Card 3)
+    // 2. Camera and Exposure (Card 2)
     cam_exp_sec_ = new CollapsibleSection(tr_str("camera_exposure"), right_container);
     camera_panel_ = new CameraPanel(cam_exp_sec_);
     cam_exp_sec_->set_content(camera_panel_->exposure_widget());
     right_layout->addWidget(cam_exp_sec_);
 
-    // 4. Gain and White Balance (Card 4)
+    // 3. Gain and White Balance (Card 3)
     gain_wb_sec_ = new CollapsibleSection(tr_str("gain_wb"), right_container);
     gain_wb_sec_->set_content(camera_panel_->gain_wb_widget());
     right_layout->addWidget(gain_wb_sec_);
 
-    // 5. Image Processing & Stacking (Card 5 - expanded by default for full visibility)
+    // 4. Image Processing & Stacking (Card 4 - expanded by default for full visibility)
     proc_sec_ = new CollapsibleSection(tr_str("processing_stacking"), right_container);
     processing_panel_ = new ProcessingPanel(proc_sec_);
     proc_sec_->set_content(processing_panel_);
     proc_sec_->set_collapsed(false);
     right_layout->addWidget(proc_sec_);
+
+    // 5. Live Histogram (Card 5 - directly above System Log)
+    hist_sec_ = new CollapsibleSection(tr_str("live_histogram"), right_container);
+    histogram_widget_ = new HistogramWidget(hist_sec_);
+    hist_sec_->set_content(histogram_widget_);
+    right_layout->addWidget(hist_sec_);
 
     // 6. System Log (Card 6 - collapsed)
     log_sec_ = new CollapsibleSection(tr_str("system_log"), right_container);
@@ -1016,8 +1013,7 @@ void MainWindow::on_reset_to_defaults_clicked() {
     if (act_crosshair_) act_crosshair_->setChecked(false);
     if (btn_grid_) btn_grid_->setChecked(false);
     if (act_grid_) act_grid_->setChecked(false);
-    if (ai_model_combo_) ai_model_combo_->setCurrentIndex(0);
-    controller_.set_active_ai_model("yolov8s");
+    on_ai_model_changed("yolov8s");
     if (ai_conf_spin_) {
         ai_conf_spin_->blockSignals(true);
         ai_conf_spin_->setValue(0.30);
@@ -2069,25 +2065,24 @@ void MainWindow::on_ai_model_changed(const QString& model_id) {
     auto res = controller_.set_active_ai_model(id_trimmed.toStdString());
     if (res.is_ok()) {
         const auto& prof = res.value();
-        if (ai_model_combo_) {
-            int idx = ai_model_combo_->findData(QString::fromStdString(prof.id));
-            if (idx >= 0 && ai_model_combo_->currentIndex() != idx) {
-                ai_model_combo_->blockSignals(true);
-                ai_model_combo_->setCurrentIndex(idx);
-                ai_model_combo_->blockSignals(false);
-            }
-            ai_model_combo_->setToolTip(QString("Active Model: %1 (%2) | Conf: %3 | NMS: %4")
-                .arg(QString::fromStdString(prof.display_name))
-                .arg(QString::fromStdString(prof.architecture))
-                .arg(prof.confidence_threshold, 0, 'f', 2)
-                .arg(prof.nms_iou, 0, 'f', 2));
-        }
         if (ai_conf_spin_) {
             ai_conf_spin_->blockSignals(true);
             ai_conf_spin_->setValue(static_cast<double>(prof.confidence_threshold));
             ai_conf_spin_->blockSignals(false);
         }
         update_ai_toolbar_button(controller_.is_ai_enabled() ? AiButtonState::On : AiButtonState::Off);
+        if (btn_ai_toggle_) {
+            bool is_id = (Translator::instance().language() == Language::Indonesian);
+            btn_ai_toggle_->setToolTip(is_id
+                ? QString("Nyalakan / Matikan Deteksi AI Real-time\nModel aktif: %1 (Conf %2 | NMS %3)\nGanti model di File -> Settings -> Hardware & AI")
+                      .arg(QString::fromStdString(prof.display_name))
+                      .arg(prof.confidence_threshold, 0, 'f', 2)
+                      .arg(prof.nms_iou, 0, 'f', 2)
+                : QString("Toggle Real-time AI Hilal Detection Pipeline\nActive Model: %1 (Conf %2 | NMS %3)\nSwitch models in File -> Settings -> Hardware & AI")
+                      .arg(QString::fromStdString(prof.display_name))
+                      .arg(prof.confidence_threshold, 0, 'f', 2)
+                      .arg(prof.nms_iou, 0, 'f', 2));
+        }
 
         SABIT_LOG_INFO("[AI] Active model switched: id=" + prof.id +
                        " name=" + prof.display_name +
@@ -2122,11 +2117,17 @@ void MainWindow::on_open_settings_clicked() {
     double cur_conf = ai_conf_spin_ ? ai_conf_spin_->value() : static_cast<double>(controller_.ai_conf_threshold());
     bool align_en = processing_panel_ ? processing_panel_->is_align_enabled() : true;
     QString cur_cap_dir = QString::fromStdString(controller_.captures_dir());
-    SettingsDialog dlg(controller_.observer_site(), cur_conf, align_en, cur_cap_dir, this);
+    QString cur_model_id = QString::fromStdString(controller_.active_ai_profile().id);
+    SettingsDialog dlg(controller_.observer_site(), cur_conf, align_en, cur_cap_dir, cur_model_id, this);
     if (dlg.exec() == QDialog::Accepted) {
         ThemeManager::instance().apply_theme(qApp, dlg.selected_theme());
         Translator::instance().set_language(dlg.selected_language());
         controller_.set_observer_site(dlg.selected_site());
+
+        const QString sel_model = dlg.selected_ai_model();
+        if (!sel_model.isEmpty() && sel_model.toStdString() != controller_.active_ai_profile().id) {
+            on_ai_model_changed(sel_model);
+        }
         controller_.set_ai_conf_threshold(static_cast<float>(dlg.selected_ai_conf()));
         controller_.enable_stack_alignment(dlg.selected_align_enabled());
 
@@ -2136,7 +2137,22 @@ void MainWindow::on_open_settings_clicked() {
         }
 
         if (ai_conf_spin_) {
+            ai_conf_spin_->blockSignals(true);
             ai_conf_spin_->setValue(dlg.selected_ai_conf());
+            ai_conf_spin_->blockSignals(false);
+        }
+        if (btn_ai_toggle_) {
+            auto active_prof = controller_.active_ai_profile();
+            bool is_id_tip = (Translator::instance().language() == Language::Indonesian);
+            btn_ai_toggle_->setToolTip(is_id_tip
+                ? QString("Nyalakan / Matikan Deteksi AI Real-time\nModel aktif: %1 (Conf %2 | NMS %3)\nGanti model di File -> Settings -> Hardware & AI")
+                      .arg(QString::fromStdString(active_prof.display_name))
+                      .arg(controller_.ai_conf_threshold(), 0, 'f', 2)
+                      .arg(controller_.ai_nms_threshold(), 0, 'f', 2)
+                : QString("Toggle Real-time AI Hilal Detection Pipeline\nActive Model: %1 (Conf %2 | NMS %3)\nSwitch models in File -> Settings -> Hardware & AI")
+                      .arg(QString::fromStdString(active_prof.display_name))
+                      .arg(controller_.ai_conf_threshold(), 0, 'f', 2)
+                      .arg(controller_.ai_nms_threshold(), 0, 'f', 2));
         }
         if (format_combo_) {
             int fmt_idx = format_combo_->findText(dlg.selected_default_format());
@@ -2157,14 +2173,14 @@ void MainWindow::on_about_clicked() {
     if (is_id) {
         QMessageBox::about(this, "Tentang Sabit",
             "<h3>Sabit \xe2\x80\x94 Presisi Otomatis Pengamatan Hilal</h3>"
-            "<p>Versi 1.1.0 (Native C++20 / Qt6)</p>"
+            "<p>Versi 1.1.1 (Native C++20 / Qt6)</p>"
             "<p>Aplikasi observasi dan pembuktian rukyatul hilal terintegrasi dengan pemrosesan citra 16-bit, "
             "plate solving astrometri bintang, kalkulasi astronomi toposentrik presisi, dan deteksi kecerdasan buatan (YOLO AI) berbasis ONNX Runtime.</p>"
             "<p>Dikembangkan untuk mendukung sidang isbat dan riset ilmu falak di Indonesia.</p>");
     } else {
         QMessageBox::about(this, "About Sabit",
             "<h3>Sabit \xe2\x80\x94 Automated Precision for Lunar Sighting</h3>"
-            "<p>Version 1.1.0 (Native C++20 / Qt6)</p>"
+            "<p>Version 1.1.1 (Native C++20 / Qt6)</p>"
             "<p>Integrated crescent sighting observation application with 16-bit image processing, "
             "astrometric star plate solving, precision topocentric astronomical calculations, and ONNX Runtime YOLO AI detection.</p>"
             "<p>Developed for astronomical research and lunar crescent verification.</p>");

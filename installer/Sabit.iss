@@ -5,7 +5,7 @@
 ; ====================================================================
 
 #define MyAppName "SABIT"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.1.1"
 #define MyAppPublisher "Mauludy Zahron"
 #define MyAppURL "https://sabit-landing-page.vercel.app/"
 #define MyAppExeName "Sabit.exe"
@@ -36,7 +36,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 
 ; Distribution output
 OutputDir=..\dist
-OutputBaseFilename=Sabit-Setup-v1.1.0-x64
+OutputBaseFilename=Sabit-Setup-v1.1.1-x64
 SetupIconFile=..\assets\logo.ico
 UninstallDisplayIcon={app}\assets\logo.ico
 

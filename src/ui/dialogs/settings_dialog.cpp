@@ -20,6 +20,7 @@ SettingsDialog::SettingsDialog(
     double current_ai_conf,
     bool align_enabled,
     const QString& current_capture_dir,
+    const QString& current_ai_model,
     QWidget* parent)
     : QDialog(parent) {
     const bool is_id = (Translator::instance().language() == Language::Indonesian);
@@ -281,7 +282,7 @@ SettingsDialog::SettingsDialog(
     tabs_->addTab(astro_tab, is_id ? "Kriteria Astro" : "Astro Criteria");
 
     // =========================================================================
-    // TAB 5: Hardware/Guiding
+    // TAB 5: Hardware & AI
     // =========================================================================
     auto* hw_tab = new QWidget(this);
     auto* hw_layout = new QVBoxLayout(hw_tab);
@@ -305,6 +306,17 @@ SettingsDialog::SettingsDialog(
     fov_spin_->setValue(2.00);
     fov_spin_->setFixedWidth(160);
 
+    ai_model_combo_ = new QComboBox(hw_tab);
+    ai_model_combo_->setObjectName("SettingsAiModelCombo");
+    ai_model_combo_->setFixedWidth(280);
+    ai_model_combo_->addItem("YOLOv8s (Primary - Recommended)", "yolov8s");
+    ai_model_combo_->addItem("YOLOv8n (Lightweight Alternative)", "yolov8n");
+    const QString normalized_model = current_ai_model.trimmed().isEmpty() ? QString("yolov8s") : current_ai_model.trimmed();
+    int model_idx = ai_model_combo_->findData(normalized_model);
+    if (model_idx >= 0) {
+        ai_model_combo_->setCurrentIndex(model_idx);
+    }
+
     ai_conf_spin_ = new QDoubleSpinBox(hw_tab);
     ai_conf_spin_->setLocale(QLocale::c());
     ai_conf_spin_->setRange(0.05, 0.95);
@@ -313,10 +325,38 @@ SettingsDialog::SettingsDialog(
     ai_conf_spin_->setValue(current_ai_conf);
     ai_conf_spin_->setFixedWidth(160);
 
+    ai_model_info_lbl_ = new QLabel(hw_tab);
+    ai_model_info_lbl_->setObjectName("FieldLabel");
+    ai_model_info_lbl_->setWordWrap(true);
+
+    auto update_ai_model_hint = [this, is_id](const QString& model_id) {
+        if (!ai_model_info_lbl_) return;
+        if (model_id == "yolov8n") {
+            ai_model_info_lbl_->setText(is_id
+                ? "Profil YOLOv8n Nano: 640x640 RGB | Default Conf: 0.75 | NMS IoU: 0.45 | Model ringan untuk latensi CPU lebih cepat."
+                : "YOLOv8n Nano Profile: 640x640 RGB | Default Conf: 0.75 | NMS IoU: 0.45 | Lightweight model for faster CPU latency.");
+        } else {
+            ai_model_info_lbl_->setText(is_id
+                ? "Profil YOLOv8s Small: 640x640 RGB | Default Conf: 0.30 | NMS IoU: 0.45 | Akurasi utama terkalibrasi untuk sabit tipis."
+                : "YOLOv8s Small Profile: 640x640 RGB | Default Conf: 0.30 | NMS IoU: 0.45 | Primary calibrated model for thin crescents.");
+        }
+    };
+    update_ai_model_hint(ai_model_combo_->currentData().toString());
+
+    connect(ai_model_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, update_ai_model_hint](int) {
+        const QString mid = ai_model_combo_->currentData().toString();
+        update_ai_model_hint(mid);
+        if (ai_conf_spin_) {
+            ai_conf_spin_->setValue(mid == "yolov8n" ? 0.75 : 0.30);
+        }
+    });
+
     hw_form->addRow(is_id ? "Metode Penyelarasan Gerak:" : "Motion Alignment Engine:", align_mode_combo_);
     hw_form->addRow(is_id ? "Estimasi Medan Pandang (FOV Plate Solve):" : "Plate Solver FOV Estimate:", fov_spin_);
+    hw_form->addRow(is_id ? "Model Deteksi AI Hilal:" : "AI Hilal Detection Model:", ai_model_combo_);
     hw_form->addRow(is_id ? "Ambang Kepercayaan Deteksi AI:" : "AI Detection Confidence Threshold:", ai_conf_spin_);
     hw_layout->addLayout(hw_form);
+    hw_layout->addWidget(ai_model_info_lbl_);
 
     auto_align_check_ = new QCheckBox(
         is_id ? "Selaraskan pergeseran citra otomatis selama Live Stacking (Phase Correlation)"
@@ -326,7 +366,7 @@ SettingsDialog::SettingsDialog(
     hw_layout->addWidget(auto_align_check_);
     hw_layout->addStretch(1);
 
-    tabs_->addTab(hw_tab, "Hardware/Guiding");
+    tabs_->addTab(hw_tab, "Hardware & AI");
 
     // =========================================================================
     // TAB 6: Saving Filenames
@@ -503,6 +543,7 @@ void SettingsDialog::on_reset_defaults() {
     pressure_spin_->setValue(1010.0);
     temp_spin_->setValue(28.0);
     fov_spin_->setValue(2.00);
+    if (ai_model_combo_) ai_model_combo_->setCurrentIndex(0);
     ai_conf_spin_->setValue(0.30);
     auto_align_check_->setChecked(true);
     default_fmt_combo_->setCurrentIndex(0);
@@ -530,6 +571,7 @@ void SettingsDialog::on_export_settings() {
     obj["elevation_m"] = elev_spin_->value();
     obj["camera_exposure"] = default_exp_spin_->value() * 1000.0;
     obj["camera_gain"] = default_gain_spin_->value();
+    obj["ai_model"] = selected_ai_model();
     obj["ai_confidence"] = ai_conf_spin_->value();
     obj["phase_correlation_align"] = auto_align_check_->isChecked();
     obj["default_format"] = default_fmt_combo_->currentText();
@@ -569,6 +611,10 @@ void SettingsDialog::on_import_settings() {
     if (obj.contains("elevation_m")) elev_spin_->setValue(obj["elevation_m"].toDouble(50.0));
     if (obj.contains("camera_exposure")) default_exp_spin_->setValue(obj["camera_exposure"].toDouble(33333.0) / 1000.0);
     if (obj.contains("camera_gain")) default_gain_spin_->setValue(obj["camera_gain"].toDouble(100.0));
+    if (obj.contains("ai_model") && ai_model_combo_) {
+        int m_idx = ai_model_combo_->findData(obj["ai_model"].toString("yolov8s").trimmed());
+        if (m_idx >= 0) ai_model_combo_->setCurrentIndex(m_idx);
+    }
     if (obj.contains("ai_confidence")) ai_conf_spin_->setValue(obj["ai_confidence"].toDouble(0.30));
     if (obj.contains("phase_correlation_align")) auto_align_check_->setChecked(obj["phase_correlation_align"].toBool(true));
     if (obj.contains("capture_dir")) capture_dir_edit_->setText(obj["capture_dir"].toString("Captures"));
@@ -602,6 +648,10 @@ astro::Site SettingsDialog::selected_site() const {
         return res.value();
     }
     return astro::Site{"Semarang", -6.9932, 110.4203, 50.0, 7.0, true};
+}
+
+QString SettingsDialog::selected_ai_model() const {
+    return ai_model_combo_ ? ai_model_combo_->currentData().toString() : QString("yolov8s");
 }
 
 double SettingsDialog::selected_ai_conf() const {

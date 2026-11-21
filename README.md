@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/MauludyZhrn/Sabit/releases/latest">
-    <img src="https://img.shields.io/badge/Release-v1.1.0-8B5CF6?style=for-the-badge" alt="Release v1.1.0" />
+    <img src="https://img.shields.io/badge/Release-v1.1.1-8B5CF6?style=for-the-badge" alt="Release v1.1.1" />
   </a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11%20x64-0EA5E9?style=for-the-badge" alt="Platform Windows 10/11 x64" />
   <img src="https://img.shields.io/badge/Stack-C%2B%2B20%20%7C%20Qt%206.8-22C55E?style=for-the-badge" alt="Stack C++20 / Qt 6.8" />
@@ -23,7 +23,7 @@
 <p align="center">
   <a href="https://sabit-landing-page.vercel.app/"><strong>Website Resmi: Sabit — Presisi Terotomasi untuk Observasi Hilal</strong></a>
   &nbsp;&middot;&nbsp;
-  <a href="https://github.com/MauludyZhrn/Sabit/releases/latest"><strong>Download v1.1.0 (Windows x64)</strong></a>
+  <a href="https://github.com/MauludyZhrn/Sabit/releases/latest"><strong>Download v1.1.1 (Windows x64)</strong></a>
   &nbsp;&middot;&nbsp;
   <a href="docs/HILAL_MODEL_INTEGRATION.md"><strong>Panduan AI Dual-Model</strong></a>
   &nbsp;&middot;&nbsp;
@@ -58,12 +58,12 @@ Mengamati hilal muda memiliki tantangan fisika dan komputasi yang ketat:
 ### Opsi 1 — Installer Windows `.exe` (Direkomendasikan untuk Pengguna Umum)
 
 1. Kunjungi website resmi **[Sabit — Presisi Terotomasi untuk Observasi Hilal](https://sabit-landing-page.vercel.app/)** atau buka halaman **[GitHub Releases](https://github.com/MauludyZhrn/Sabit/releases/latest)**.
-2. Unduh file **`Sabit-Setup-v1.1.0-x64.exe`** (Windows 10/11 64-bit).
+2. Unduh file **`Sabit-Setup-v1.1.1-x64.exe`** (Windows 10/11 64-bit).
 3. *(Opsional)* Verifikasi keaslian installer terhadap berkas `SHA256SUMS.txt` dari halaman release menggunakan PowerShell:
    ```powershell
-   Get-FileHash .\Sabit-Setup-v1.1.0-x64.exe -Algorithm SHA256
+   Get-FileHash .\Sabit-Setup-v1.1.1-x64.exe -Algorithm SHA256
    ```
-4. Jalankan installer `Sabit-Setup-v1.1.0-x64.exe`. Instalasi bersifat *per-user* ke `%LOCALAPPDATA%\Programs\Sabit` sehingga **tidak memerlukan hak Administrator**. Paket installer sudah membundel runtime Qt6, ONNX Runtime, model AI YOLOv8s & YOLOv8n, serta panduan pengguna.
+4. Jalankan installer `Sabit-Setup-v1.1.1-x64.exe`. Instalasi bersifat *per-user* ke `%LOCALAPPDATA%\Programs\Sabit` sehingga **tidak memerlukan hak Administrator**. Paket installer sudah membundel runtime Qt6, ONNX Runtime, model AI YOLOv8s & YOLOv8n, serta panduan pengguna.
 5. Jalankan **Sabit** dari Start Menu atau ikon Desktop. Untuk pembaruan versi mendatang, gunakan menu **`Help -> Check for Updates`** langsung dari dalam aplikasi.
 
 ### Opsi 2 — Build dari Source Code (Developer)
@@ -104,14 +104,14 @@ ctest --test-dir build-release -C Release --output-on-failure
 | **Multi-Driver Kamera Astronomi** | Dukungan native **ZWO ASI**, **QHYCCD**, jembatan **ASCOM Platform**, **DirectShow / UVC** (webcam, DSLR HDMI capture card, Canon EOS Webcam Utility dengan auto-deteksi mode Mono/RGB), serta **Synthetic Simulator** berbasis efemeris. |
 | **Pemrosesan Citra & Live Stacking** | Pipeline multi-thread bebas freeze: auto-stretch **MTF**, **CLAHE**, *unsharp mask*, pengurangan *banding*, koreksi **Master Dark / Master Flat**, serta **Live Stacking** (Mean & Sigma-Clipped Average) dengan perataan pergeseran sub-piksel FFT Phase Correlation. |
 | **Efemeris & Kriteria Visibilitas** | Perhitungan toposentrik real-time (elevasi, azimut, elongasi, lebar sabit *W*, iluminasi, waktu maghrib & moonset), kalender ganda Gregorian & Hijriah, serta status otomatis **MABIMS Baru**, **Odeh**, dan **Danjon**. |
-| **Deteksi AI Dual-Model (HILAL-DETECT V2)** | Inferensi real-time **ONNX Runtime** (`v1.17.1` C API) dengan pergantian model **YOLOv8s** / **YOLOv8n** langsung dari toolbar tanpa restart, log setiap bounding box ke `detections.csv`, dan dukungan GPU CUDA terverifikasi saat runtime tersedia. |
+| **Deteksi AI Dual-Model (HILAL-DETECT V2)** | Inferensi real-time **ONNX Runtime** (`v1.17.1` C API) dengan pergantian model **YOLOv8s** / **YOLOv8n** tanpa restart melalui `File -> Settings -> Hardware & AI`, log setiap bounding box ke `detections.csv`, dan dukungan GPU CUDA terverifikasi saat runtime tersedia. |
 | **Perekaman Ilmiah, Pelaporan & Update** | Ekspor lossless **FITS 16-bit** dengan header WCS/efemeris, video **AVI/MP4**, foto **PNG/TIFF**, struktur sesi terorganisir (`logs/` & `captures/`), ekspor **Laporan PDF Sidang Isbat**, **Live Log terminal berwarna**, pelaporan masalah **tanpa login**, serta **Check for Updates**. |
 
 ---
 
 ## Deteksi AI Dual-Model (`HILAL-DETECT V2`)
 
-Mulai **Sabit v1.1.0**, pengguna dapat berpindah secara langsung di toolbar antara model akurasi tinggi dan model ringan sesuai spesifikasi perangkat keras:
+Mulai **Sabit v1.1.0+** (termasuk layout **v1.1.1** terbaru), pengguna dapat berpindah melalui **`File -> Settings -> Hardware & AI`** antara model akurasi tinggi dan model ringan sesuai spesifikasi perangkat keras:
 
 | Properti | YOLOv8s (`Primary - Recommended`) | YOLOv8n (`Lightweight Alternative`) | Legacy `hilal_v1` (Dipertahankan) |
 | :--- | :--- | :--- | :--- |

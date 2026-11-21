@@ -34,7 +34,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$InstallerPath = Join-Path $ProjectRoot "dist\Sabit-Setup-v1.1.0-x64.exe"
+$InstallerPath = Join-Path $ProjectRoot "dist\Sabit-Setup-v1.1.1-x64.exe"
 if (Test-Path $InstallerPath) {
     $Item = Get-Item $InstallerPath
     $Hash = (Get-FileHash -Algorithm SHA256 $InstallerPath).Hash

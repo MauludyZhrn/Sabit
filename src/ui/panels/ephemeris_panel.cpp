@@ -45,8 +45,10 @@ EphemerisPanel::EphemerisPanel(QWidget* parent) : QWidget(parent) {
         val_label = new MarqueeLabel("--", this);
         val_label->setObjectName("FieldValue");
         val_label->setFont(mono_font);
+        val_label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        val_label->setMinimumWidth(0);
         grid->addWidget(lbl, row * 2, 0);
-        grid->addWidget(val_label, row * 2 + 1, 0, Qt::AlignLeft);
+        grid->addWidget(val_label, row * 2 + 1, 0);
     };
 
     make_field(0, masehi_lbl_, tr_str("masehi_datetime"), masehi_val_);
@@ -67,6 +69,8 @@ EphemerisPanel::EphemerisPanel(QWidget* parent) : QWidget(parent) {
     visibility_val_ = new MarqueeLabel("--", this);
     visibility_val_->setObjectName("FieldValue");
     visibility_val_->setFont(mono_font);
+    visibility_val_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    visibility_val_->setMinimumWidth(0);
 
     detail_btn_ = new QPushButton(tr_str("location"), this);
     detail_btn_->setObjectName("ResetButton");
@@ -74,8 +78,7 @@ EphemerisPanel::EphemerisPanel(QWidget* parent) : QWidget(parent) {
     detail_btn_->setToolTip(tr_str("site_presets"));
     connect(detail_btn_, &QPushButton::clicked, this, &EphemerisPanel::on_detail_clicked);
 
-    vis_row->addWidget(visibility_val_);
-    vis_row->addStretch();
+    vis_row->addWidget(visibility_val_, 1);
     vis_row->addWidget(detail_btn_);
     grid->addLayout(vis_row, 13, 0);
     grid->setColumnStretch(0, 1);

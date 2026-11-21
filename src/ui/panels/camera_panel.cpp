@@ -35,6 +35,8 @@ void CameraPanel::create_exposure_ui() {
 
     driver_info_lbl_ = new MarqueeLabel("Driver: Standby (No Camera)", exposure_container_);
     driver_info_lbl_->setObjectName("FieldLabel");
+    driver_info_lbl_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    driver_info_lbl_->setMinimumWidth(0);
     layout->addWidget(driver_info_lbl_);
 
     // Row 1: Exposure label + Numeric SpinBox (ms) + LX Mode checkbox (SharpCap Reference Image 1)

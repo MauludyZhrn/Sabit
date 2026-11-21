@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(Sabit
-    VERSION 1.1.0
+    VERSION 1.1.1
     DESCRIPTION "High-performance native Hilal live-view, processing, and detection application"
     LANGUAGES C CXX
 )

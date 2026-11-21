@@ -1,7 +1,7 @@
-﻿# Catatan Rilis Versi Uji Coba: SABIT v1.1.0 (Research Test Build)
+﻿# Catatan Rilis Versi Uji Coba: SABIT v1.1.1 (Research Test Build)
 
 Aplikasi: SABIT -- Scientific Astronomical Imaging & Observation Toolkit
-Versi: 1.1.0 (Release Build x64)
+Versi: 1.1.1 (Release Build x64)
 Arsitektur: Native C++20 / Qt 6.8 (Windows 64-bit)
 Tujuan: Pengujian Lapangan dan Pengumpulan Data Riset Tesis Magister Ilmu Falak
 Pengembang: Mauludy Zahron

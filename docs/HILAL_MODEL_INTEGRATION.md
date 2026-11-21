@@ -111,9 +111,10 @@ Implemented in `sabit::detect::OnnxDetector` (`src/detect/onnx_detector.h` and `
 
 ### 5.3 Sabit Controller & Qt6 UI Integration
 - `sabit::app::AppController` (`src/app/app_controller.h/.cpp`): initializes on `yolov8s` by default, exposes `set_active_ai_model()`, `active_ai_profile()`, `ai_conf_threshold()`, `ai_nms_threshold()`, and `ai_execution_provider()`.
-- `sabit::ui::MainWindow` (`src/ui/main_window.h/.cpp`):
-  - Adds `ai_model_combo_` (`AiModelCombo`) in toolbar Group 4 (`YOLOv8s (Primary - Recommended)` and `YOLOv8n (Lightweight Alternative)`), defaulting to `yolov8s` and `0.30` confidence.
-  - Switching the combo box triggers `MainWindow::on_ai_model_changed()`, calling `controller_.set_active_ai_model()`, updating `ai_conf_spin_`, updating tooltips/logs/toasts, and keeping the active ONNX worker thread responsive without UI stalls.
+- `sabit::ui::MainWindow` (`src/ui/main_window.h/.cpp`) & `sabit::ui::SettingsDialog` (`src/ui/dialogs/settings_dialog.h/.cpp`):
+  - `SettingsDialog` Tab 5 (`Hardware & AI`) provides the `ai_model_combo_` (`YOLOv8s (Primary - Recommended)` and `YOLOv8n (Lightweight Alternative)`) and `ai_conf_spin_` (`0.30` / `0.75` defaults), keeping the top toolbar uncrowded with only `AI Sensor` toggle + `Conf` spinbox.
+  - Selecting a model and accepting Settings calls `MainWindow::on_ai_model_changed()`, triggering `controller_.set_active_ai_model()`, syncing `ai_conf_spin_`, updating tooltips/logs/toasts, and keeping the active ONNX worker thread responsive without UI stalls.
+  - In the right Observation Controls sidebar, `Live Histogram` (`hist_sec_`) is ordered directly above `System Log` (`log_sec_`), keeping `Astronomy and Ephemeris` and camera exposure controls immediately visible at the top.
   - Persisted settings in `settings.json` store `"active_model"`, `"model"`, `"confidence"`, `"nms_iou"`, and `"provider"`, with a legacy guard so pre-v2 `settings.json` files referencing `hilal_v1.onnx` do not override the `0.30` `yolov8s` default.
 
 ---
@@ -176,7 +177,7 @@ Specifically, `[Test 7] HILAL-DETECT V2 Dual-Model (YOLOv8s + YOLOv8n) Integrati
      - Predicted Conf: `0.8134` vs Reference: `0.8134` (abs diff `5.96046e-08`)
      - Predicted XYXY: `[225.998, 410.128, 389.667, 445.58]` vs Reference: `[225.998, 410.128, 389.667, 445.58]`
 9. **GPU EP Probe / Fallback**: `prefer_cuda=true` probed ORT providers and CUDA runtime DLLs (`nvcuda.dll`, `onnxruntime_providers_cuda.dll`) safely, falling back to `CPUExecutionProvider` on a CPU-only ORT runtime without errors.
-10. **Runtime Model Switching & UI Binding**: `setActiveModel("yolov8s") -> setActiveModel("yolov8n") -> setActiveModel("yolov8n")` (verified duplicate reload skipped) `-> setActiveModel("yolov8s") -> releaseModel()`, plus `AppUiTests` verifying `MainWindow::ai_model_selector()` defaults to `yolov8s` (`conf=0.30`), switches cleanly to `yolov8n` (`conf=0.75`), and restores `yolov8s`.
+10. **Runtime Model Switching & UI Binding**: `setActiveModel("yolov8s") -> setActiveModel("yolov8n") -> setActiveModel("yolov8n")` (verified duplicate reload skipped) `-> setActiveModel("yolov8s") -> releaseModel()`, plus `AppUiTests` verifying `SettingsDialog::ai_model_combo()` defaults to `yolov8s` (`conf=0.30`), switches cleanly to `yolov8n` (`conf=0.75`), syncs with `MainWindow::on_ai_model_changed()`, restores `yolov8s`, and verifies `Live Histogram` is positioned directly above `System Log`.
 
 ---
 

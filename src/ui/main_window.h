@@ -32,8 +32,12 @@ public:
     explicit MainWindow(app::AppController& controller, QWidget* parent = nullptr);
     ~MainWindow() override;
 
-    [[nodiscard]] QComboBox* ai_model_selector() const { return ai_model_combo_; }
     [[nodiscard]] QDoubleSpinBox* ai_conf_selector() const { return ai_conf_spin_; }
+    [[nodiscard]] CollapsibleSection* histogram_section() const { return hist_sec_; }
+    [[nodiscard]] CollapsibleSection* log_section() const { return log_sec_; }
+
+public slots:
+    void on_ai_model_changed(const QString& model_id);
 
 private slots:
     void on_timer_tick();
@@ -51,7 +55,6 @@ private slots:
     void on_export_diagnostic_clicked();
     void on_report_issue_clicked();
     void on_check_updates_clicked(bool silent_startup = false);
-    void on_ai_model_changed(const QString& model_id);
     void on_open_settings_clicked();
     void on_open_calibration_wizard();
     void on_preset_daylight();
@@ -139,7 +142,6 @@ private:
     QComboBox* zoom_combo_{nullptr};
     QToolButton* btn_reticle_{nullptr};
     QToolButton* btn_grid_{nullptr};
-    QComboBox* ai_model_combo_{nullptr};
     QDoubleSpinBox* ai_conf_spin_{nullptr};
     QToolButton* btn_ai_toggle_{nullptr};
 

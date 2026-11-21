@@ -10,6 +10,7 @@
 #include <QWidget>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QVBoxLayout>
 
 #include "src/core/frame.h"
 #include "src/core/clock.h"
@@ -23,6 +24,7 @@
 #include "src/ui/dialogs/configure_capture_dialog.h"
 #include "src/ui/dialogs/report_issue_dialog.h"
 #include "src/ui/dialogs/export_dialog.h"
+#include "src/ui/dialogs/settings_dialog.h"
 #include "src/ui/dialogs/update_dialog.h"
 #include "src/ui/panels/live_log_panel.h"
 
@@ -209,25 +211,46 @@ void test_ui_offscreen_lifecycle(int argc, char** argv) {
                ui::ThemeManager::instance().current_theme() == ui::ThemeType::NightRed, "Default theme should be Dark or NightRed");
     win.show();
 
-    // Verify dual-model HILAL-DETECT V2 toolbar controls default to YOLOv8s (Conf 0.30) and switch cleanly to YOLOv8n (Conf 0.75)
-    TEST_CHECK(win.ai_model_selector() != nullptr, "MainWindow ai_model_selector must exist");
+    // Verify dual-model HILAL-DETECT V2 settings selector & sidebar card ordering (Live Histogram directly above System Log)
     TEST_CHECK(win.ai_conf_selector() != nullptr, "MainWindow ai_conf_selector must exist");
-    TEST_CHECK(win.ai_model_selector()->count() >= 2, "ai_model_selector must offer YOLOv8s and YOLOv8n");
-    TEST_CHECK(win.ai_model_selector()->currentData().toString() == "yolov8s", "Default AI model must be yolov8s");
     TEST_CHECK(std::abs(win.ai_conf_selector()->value() - 0.30) < 0.01, "Default AI confidence must be 0.30 for yolov8s");
     TEST_CHECK(controller.active_ai_profile().id == "yolov8s", "Controller default active profile must be yolov8s");
 
-    win.ai_model_selector()->setCurrentIndex(1); // Switch to YOLOv8n (Lightweight Alternative)
+    TEST_CHECK(win.histogram_section() != nullptr && win.log_section() != nullptr, "Histogram and System Log sections must exist");
+    auto* sidebar_layout = qobject_cast<QVBoxLayout*>(win.histogram_section()->parentWidget()->layout());
+    TEST_CHECK(sidebar_layout != nullptr, "Sidebar container must use QVBoxLayout");
+    int idx_hist = sidebar_layout->indexOf(win.histogram_section());
+    int idx_log = sidebar_layout->indexOf(win.log_section());
+    TEST_CHECK(idx_hist >= 0 && idx_log == idx_hist + 1, "Live Histogram must be positioned directly above System Log");
+
+    ui::SettingsDialog settings_dlg(
+        controller.observer_site(),
+        win.ai_conf_selector()->value(),
+        true,
+        QString::fromStdString(controller.captures_dir()),
+        QString::fromStdString(controller.active_ai_profile().id),
+        &win);
+    TEST_CHECK(settings_dlg.ai_model_combo() != nullptr, "SettingsDialog ai_model_combo must exist");
+    TEST_CHECK(settings_dlg.ai_model_combo()->count() >= 2, "SettingsDialog ai_model_combo must offer YOLOv8s and YOLOv8n");
+    TEST_CHECK(settings_dlg.selected_ai_model() == "yolov8s", "SettingsDialog default AI model must be yolov8s");
+    TEST_CHECK(std::abs(settings_dlg.selected_ai_conf() - 0.30) < 0.01, "SettingsDialog default AI conf must be 0.30");
+
+    settings_dlg.ai_model_combo()->setCurrentIndex(1); // Switch to YOLOv8n (Lightweight Alternative)
     app.processEvents();
-    TEST_CHECK(win.ai_model_selector()->currentData().toString() == "yolov8n", "Switched AI model must be yolov8n");
+    TEST_CHECK(settings_dlg.selected_ai_model() == "yolov8n", "SettingsDialog switched AI model must be yolov8n");
+    TEST_CHECK(std::abs(settings_dlg.selected_ai_conf() - 0.75) < 0.01, "SettingsDialog YOLOv8n switch must apply conf 0.75");
+
+    win.on_ai_model_changed(settings_dlg.selected_ai_model());
+    app.processEvents();
     TEST_CHECK(controller.active_ai_profile().id == "yolov8n", "Controller active profile must switch to yolov8n");
-    TEST_CHECK(std::abs(win.ai_conf_selector()->value() - 0.75) < 0.01, "YOLOv8n switch must apply confidence 0.75");
+    TEST_CHECK(std::abs(win.ai_conf_selector()->value() - 0.75) < 0.01, "Toolbar conf spin must sync to 0.75 for yolov8n");
     TEST_CHECK(std::abs(controller.ai_conf_threshold() - 0.75f) < 0.01f, "Controller conf threshold must update to 0.75");
 
-    win.ai_model_selector()->setCurrentIndex(0); // Restore YOLOv8s Primary
+    settings_dlg.ai_model_combo()->setCurrentIndex(0); // Restore YOLOv8s Primary
+    win.on_ai_model_changed(settings_dlg.selected_ai_model());
     app.processEvents();
     TEST_CHECK(controller.active_ai_profile().id == "yolov8s", "Controller active profile must restore to yolov8s");
-    TEST_CHECK(std::abs(win.ai_conf_selector()->value() - 0.30) < 0.01, "YOLOv8s switch must restore confidence 0.30");
+    TEST_CHECK(std::abs(win.ai_conf_selector()->value() - 0.30) < 0.01, "Toolbar conf spin must restore to 0.30");
 
     // Process events for 200 ms to verify timers, panels, and widgets tick without issue
     for (int i = 0; i < 10; ++i) {
@@ -376,17 +399,17 @@ void test_ui_offscreen_lifecycle(int argc, char** argv) {
                "Formatted release notes must contain rendered Markdown HTML tags");
 
     m_info.update_available = false;
-    m_info.latest_version = "1.1.0";
+    m_info.latest_version = "1.1.1";
     ui::UpdateDialog dlg_uptodate(m_info);
     TEST_CHECK(!dlg_uptodate.windowTitle().isEmpty(), "UpdateDialog (up to date) title check");
 
     ui::LiveLogPanel log_panel;
     TEST_CHECK(log_panel.log_view() != nullptr, "LiveLogPanel log view must exist");
     TEST_CHECK(log_panel.log_view()->objectName() == "TerminalLogView", "LiveLogPanel must use TerminalLogView objectName");
-    log_panel.append_log_line("[12:00:00] [INFO ] [System] Version=v1.1.0 FPS=30.0");
+    log_panel.append_log_line("[12:00:00] [INFO ] [System] Version=v1.1.1 FPS=30.0");
     log_panel.append_log_line("[12:00:01] [WARN ] [UVC] Frame drop detected Count=1");
     log_panel.append_log_line("[12:00:02] [ERROR] [AI] Test error telemetry Code=500");
-    TEST_CHECK(log_panel.log_view()->toPlainText().contains("Version=v1.1.0"), "LiveLogPanel append check");
+    TEST_CHECK(log_panel.log_view()->toPlainText().contains("Version=v1.1.1"), "LiveLogPanel append check");
 
     std::cout << "  PASS: Check for Updates, Release Notes HTML & Terminal LiveLogPanel verified." << std::endl;
 }
