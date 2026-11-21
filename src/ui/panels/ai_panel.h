@@ -2,6 +2,7 @@
 #define SABIT_UI_AI_PANEL_H
 
 #include <QWidget>
+#include <QComboBox>
 #include <QPushButton>
 #include <QSlider>
 #include <QLabel>
@@ -24,12 +25,14 @@ public:
 
     void update_detection_status(bool is_active, const std::vector<detect::Detection>& dets);
     void set_ai_state(AiButtonState state);
+    void sync_model_profile(const QString& model_id, float conf, float nms);
     void retranslate_ui();
     [[nodiscard]] AiButtonState ai_state() const { return current_state_; }
 
 signals:
     void ai_toggled(bool enabled);
     void ai_state_requested(AiButtonState target_state);
+    void model_selected(const QString& model_id);
     void conf_threshold_changed(float conf);
     void nms_threshold_changed(float nms);
 
@@ -37,6 +40,8 @@ private:
     void apply_button_style();
 
     QPushButton* ai_toggle_btn_{nullptr};
+    QLabel* model_title_lbl_{nullptr};
+    QComboBox* model_combo_{nullptr};
     QLabel* conf_title_lbl_{nullptr};
     QSlider* conf_slider_{nullptr};
     QLabel* conf_val_lbl_{nullptr};

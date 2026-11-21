@@ -4,6 +4,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
+#include <cmath>
 
 namespace sabit::ui {
 
@@ -17,21 +18,33 @@ AiPanel::AiPanel(QWidget* parent) : QWidget(parent) {
     ai_toggle_btn_->setMinimumHeight(32);
     layout->addWidget(ai_toggle_btn_);
 
+    bool is_night_red = (ThemeManager::instance().current_theme() == ThemeType::NightRed);
+    bool is_id = (Translator::instance().language() == Language::Indonesian);
+
+    // Dual-Model Selection (YOLOv8s Primary vs YOLOv8n Alternative)
+    model_title_lbl_ = new QLabel(is_id ? "Model Deteksi AI:" : "AI Detection Model:", this);
+    model_title_lbl_->setStyleSheet(QString("color: %1;").arg(is_night_red ? "#991B1B" : "#94A3B8"));
+    layout->addWidget(model_title_lbl_);
+
+    model_combo_ = new QComboBox(this);
+    model_combo_->addItem("YOLOv8s (Primary - Recommended)", "yolov8s");
+    model_combo_->addItem("YOLOv8n (Lightweight Alternative)", "yolov8n");
+    model_combo_->setCurrentIndex(0);
+    layout->addWidget(model_combo_);
+
     // Thresholds
     auto grid = new QGridLayout();
     grid->setContentsMargins(0, 4, 0, 0);
 
-    bool is_night_red = (ThemeManager::instance().current_theme() == ThemeType::NightRed);
-
     auto c_title = new QLabel(tr_str("conf_threshold") + ":", this);
     c_title->setStyleSheet(QString("color: %1;").arg(is_night_red ? "#991B1B" : "#94A3B8"));
     conf_title_lbl_ = c_title;
-    conf_val_lbl_ = new QLabel("25%", this);
+    conf_val_lbl_ = new QLabel("30%", this);
     conf_val_lbl_->setStyleSheet(QString("color: %1; font-weight: bold; font-family: 'Consolas', monospace;").arg(is_night_red ? "#FF2A2A" : "#67E8F9"));
 
     conf_slider_ = new QSlider(Qt::Horizontal, this);
-    conf_slider_->setRange(10, 95); // 10% to 95% (FR-20)
-    conf_slider_->setValue(25);
+    conf_slider_->setRange(10, 95); // 10% to 95%
+    conf_slider_->setValue(30);
 
     auto n_title = new QLabel(tr_str("nms_threshold") + ":", this);
     n_title->setStyleSheet(QString("color: %1;").arg(is_night_red ? "#991B1B" : "#94A3B8"));
@@ -40,7 +53,7 @@ AiPanel::AiPanel(QWidget* parent) : QWidget(parent) {
     nms_val_lbl_->setStyleSheet(QString("color: %1; font-weight: bold; font-family: 'Consolas', monospace;").arg(is_night_red ? "#FF2A2A" : "#67E8F9"));
 
     nms_slider_ = new QSlider(Qt::Horizontal, this);
-    nms_slider_->setRange(20, 70); // 20% to 70% (FR-20)
+    nms_slider_->setRange(20, 70); // 20% to 70%
     nms_slider_->setValue(45);
 
     grid->addWidget(conf_title_lbl_, 0, 0);
@@ -77,6 +90,14 @@ AiPanel::AiPanel(QWidget* parent) : QWidget(parent) {
         }
     });
 
+    connect(model_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        if (idx < 0) return;
+        QString model_id = model_combo_->itemData(idx).toString();
+        if (!model_id.isEmpty()) {
+            emit model_selected(model_id);
+        }
+    });
+
     connect(conf_slider_, &QSlider::valueChanged, this, [this](int v) {
         conf_val_lbl_->setText(QString("%1%").arg(v));
         emit conf_threshold_changed(v / 100.0f);
@@ -86,6 +107,31 @@ AiPanel::AiPanel(QWidget* parent) : QWidget(parent) {
         nms_val_lbl_->setText(QString("%1%").arg(v));
         emit nms_threshold_changed(v / 100.0f);
     });
+}
+
+void AiPanel::sync_model_profile(const QString& model_id, float conf, float nms) {
+    if (model_combo_) {
+        int idx = model_combo_->findData(model_id);
+        if (idx >= 0) {
+            model_combo_->blockSignals(true);
+            model_combo_->setCurrentIndex(idx);
+            model_combo_->blockSignals(false);
+        }
+    }
+    if (conf_slider_ && conf_val_lbl_) {
+        int cv = static_cast<int>(std::lround(conf * 100.0f));
+        conf_slider_->blockSignals(true);
+        conf_slider_->setValue(cv);
+        conf_slider_->blockSignals(false);
+        conf_val_lbl_->setText(QString("%1%").arg(cv));
+    }
+    if (nms_slider_ && nms_val_lbl_) {
+        int nv = static_cast<int>(std::lround(nms * 100.0f));
+        nms_slider_->blockSignals(true);
+        nms_slider_->setValue(nv);
+        nms_slider_->blockSignals(false);
+        nms_val_lbl_->setText(QString("%1%").arg(nv));
+    }
 }
 
 void AiPanel::set_ai_state(AiButtonState state) {
@@ -161,6 +207,8 @@ void AiPanel::apply_button_style() {
 }
 
 void AiPanel::retranslate_ui() {
+    bool is_id = (Translator::instance().language() == Language::Indonesian);
+    if (model_title_lbl_) model_title_lbl_->setText(is_id ? "Model Deteksi AI:" : "AI Detection Model:");
     if (conf_title_lbl_) conf_title_lbl_->setText(tr_str("conf_threshold") + ":");
     if (nms_title_lbl_) nms_title_lbl_->setText(tr_str("nms_threshold") + ":");
     apply_button_style();

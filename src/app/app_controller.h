@@ -138,11 +138,16 @@ public:
     void set_ca_reduction(bool enable);
 
     // AI Deteksi
-    core::Result<void> init_ai(const std::string& model_path = "models/hilal_v1.onnx", const std::string& manifest_path = "models/manifest.json");
+    core::Result<void> init_ai(const std::string& model_path = "models/hilal/yolov8s/hilal_yolov8s_640.onnx", const std::string& manifest_path = "models/manifest.json");
+    core::Result<detect::ModelProfile> set_active_ai_model(const std::string& model_id);
+    [[nodiscard]] detect::ModelProfile active_ai_profile() const;
+    [[nodiscard]] std::string ai_execution_provider() const { return detector_.active_execution_provider(); }
     void enable_ai(bool enable);
     [[nodiscard]] bool is_ai_enabled() const;
     void set_ai_conf_threshold(float conf);
+    [[nodiscard]] float ai_conf_threshold() const;
     void set_ai_nms_threshold(float nms);
+    [[nodiscard]] float ai_nms_threshold() const;
     std::vector<detect::Detection> get_latest_overlay(int64_t max_age_ms = 500) const;
 
     // Perekaman Berkas & Folder Tangkapan

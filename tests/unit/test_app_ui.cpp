@@ -8,6 +8,8 @@
 
 #include <QApplication>
 #include <QWidget>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 
 #include "src/core/frame.h"
 #include "src/core/clock.h"
@@ -206,6 +208,26 @@ void test_ui_offscreen_lifecycle(int argc, char** argv) {
     TEST_CHECK(ui::ThemeManager::instance().current_theme() == ui::ThemeType::Dark ||
                ui::ThemeManager::instance().current_theme() == ui::ThemeType::NightRed, "Default theme should be Dark or NightRed");
     win.show();
+
+    // Verify dual-model HILAL-DETECT V2 toolbar controls default to YOLOv8s (Conf 0.30) and switch cleanly to YOLOv8n (Conf 0.75)
+    TEST_CHECK(win.ai_model_selector() != nullptr, "MainWindow ai_model_selector must exist");
+    TEST_CHECK(win.ai_conf_selector() != nullptr, "MainWindow ai_conf_selector must exist");
+    TEST_CHECK(win.ai_model_selector()->count() >= 2, "ai_model_selector must offer YOLOv8s and YOLOv8n");
+    TEST_CHECK(win.ai_model_selector()->currentData().toString() == "yolov8s", "Default AI model must be yolov8s");
+    TEST_CHECK(std::abs(win.ai_conf_selector()->value() - 0.30) < 0.01, "Default AI confidence must be 0.30 for yolov8s");
+    TEST_CHECK(controller.active_ai_profile().id == "yolov8s", "Controller default active profile must be yolov8s");
+
+    win.ai_model_selector()->setCurrentIndex(1); // Switch to YOLOv8n (Lightweight Alternative)
+    app.processEvents();
+    TEST_CHECK(win.ai_model_selector()->currentData().toString() == "yolov8n", "Switched AI model must be yolov8n");
+    TEST_CHECK(controller.active_ai_profile().id == "yolov8n", "Controller active profile must switch to yolov8n");
+    TEST_CHECK(std::abs(win.ai_conf_selector()->value() - 0.75) < 0.01, "YOLOv8n switch must apply confidence 0.75");
+    TEST_CHECK(std::abs(controller.ai_conf_threshold() - 0.75f) < 0.01f, "Controller conf threshold must update to 0.75");
+
+    win.ai_model_selector()->setCurrentIndex(0); // Restore YOLOv8s Primary
+    app.processEvents();
+    TEST_CHECK(controller.active_ai_profile().id == "yolov8s", "Controller active profile must restore to yolov8s");
+    TEST_CHECK(std::abs(win.ai_conf_selector()->value() - 0.30) < 0.01, "YOLOv8s switch must restore confidence 0.30");
 
     // Process events for 200 ms to verify timers, panels, and widgets tick without issue
     for (int i = 0; i < 10; ++i) {

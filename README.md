@@ -38,14 +38,18 @@ Sabit integrates real-time ephemeris modeling, multi-driver astronomical hardwar
 - **Visibility Criteria Assessment**: Real-time evaluation against MABIMS (new criteria: altitude >= 3 deg, elongation >= 6.4 deg), Danjon limit, and Odeh visibility models.
 - **Dual Calendar System**: Synchronized Gregorian and Hijri date displays with automatic sunset/moonset event countdowns.
 
-### 4. Neural Network-Assisted Crescent Detection
-- **Edge AI Inference**: Embedded ONNX Runtime engine executing real-time object detection models specifically trained for young crescent detection.
-- **Visual Overlays**: Dynamic bounding boxes, confidence score telemetry, and detection logging without blocking the high-frame-rate preview.
+### 4. Neural Network-Assisted Crescent Detection (HILAL-DETECT V2)
+- **Dual-Model Edge AI Inference**: Embedded ONNX Runtime engine (`v1.17.1` C API) with runtime switching directly from the toolbar without restarting Sabit:
+  - **Primary Model (`yolov8s`)**: YOLOv8s `640x640`, default confidence `0.30`, NMS IoU `0.45` (`models/hilal/yolov8s/hilal_yolov8s_640.onnx`).
+  - **Lightweight Alternative (`yolov8n`)**: YOLOv8n `640x640`, default confidence `0.75`, NMS IoU `0.45` (`models/hilal/yolov8n/best.onnx`).
+  - **Contract-Exact Pipeline**: Aspect-preserving `640x640` RGB letterbox (`pad=114`, normalized `1/255`) preprocessing, `[1, 5, 8400]` decoding, host C++ NMS, and inverse letterbox bounding-box restoration with `CPUExecutionProvider` (plus verified `CUDAExecutionProvider` fallback when CUDA runtime DLLs are installed).
+- **Visual Overlays & Real-Time Logging**: Dynamic bounding boxes, per-detection confidence telemetry (`detections.csv`), and terminal-styled color live logs without blocking the high-frame-rate preview.
 
-### 5. Scientific Recording and Official Reporting
+### 5. Scientific Recording, Diagnostics, and Updates
 - **Multi-Format Capture**: Lossless 16-bit scientific FITS capture with comprehensive astronomical WCS/ephemeris metadata headers, uncompressed AVI/MP4 video streams, and lossless PNG/TIFF snapshots.
-- **Session Management**: Session-based folder hierarchies accompanied by JSON/CSV capture manifests and hardware telemetry logs.
+- **Session & Folder Organization**: Automatic session folders separated into structured `logs/` and `captures/` subfolders with timestamped filenames and JSON/CSV telemetry manifests.
 - **Official Observation PDF Reports**: Built-in reporting generator producing standardized observation reports suitable for institutional documentation (e.g., Ministry of Religious Affairs / Sidang Isbat).
+- **Direct Issue Reporting & Check for Updates**: Built-in diagnostics packager with login-free email issue reporting and GitHub Release update checker with formatted Markdown release notes.
 
 ---
 
@@ -173,9 +177,16 @@ Sabit/
 ├── assets/                     # Application icons, logos, and UI SVG resources
 ├── cmake/                      # Custom CMake helper modules and toolchain configs
 ├── docs/                       # Specifications, user manuals, and technical notes
+│   ├── HILAL_MODEL_INTEGRATION.md  # HILAL-DETECT V2 dual-model ONNX integration guide
+│   └── User_Manual.pdf             # Application user manual
 ├── include_fix/                # Cross-compiler compatibility headers
 ├── models/                     # Production ONNX neural network models
-│   └── hilal_v1.onnx          # Production Hilal detection model
+│   ├── manifest.json           # Model integrity SHA-256 & schema v2 manifest
+│   ├── hilal/                  # HILAL-DETECT V2 dual-model packages & profiles
+│   │   ├── model_profiles.json # YOLOv8s & YOLOv8n profile definitions
+│   │   ├── yolov8s/            # Primary YOLOv8s ONNX, metadata, samples, & docs
+│   │   └── yolov8n/            # Lightweight YOLOv8n ONNX, metadata, & samples
+│   └── hilal_v1.onnx           # Preserved legacy Hilal detection model v1
 ├── src/                        # C++ source code
 │   ├── app/                    # Central application controller and state
 │   ├── astro/                  # Ephemeris, coordinates, and criteria calculations
@@ -237,12 +248,19 @@ Sabit utilizes a structured JSON configuration file (`settings.json`) located al
     "filename_pattern": "{DATE}_{TIME}_{TARGET}_{SEQ}"
   },
   "ai": {
-    "model": "models/hilal_v1.onnx",
-    "confidence": 0.5,
-    "provider": "cpu"
+    "active_model": "yolov8s",
+    "model": "models/hilal/yolov8s/hilal_yolov8s_640.onnx",
+    "confidence": 0.30,
+    "nms_iou": 0.45,
+    "provider": "CPUExecutionProvider"
   }
 }
 ```
+
+## Documentation
+
+- [HILAL-DETECT V2 Dual-Model Integration Guide](docs/HILAL_MODEL_INTEGRATION.md) — Architecture comparison, ONNX tensor contracts, thresholds, build steps, and validation results (`YOLOv8s` & `YOLOv8n`).
+- [User Manual (PDF)](docs/User_Manual.pdf) — Observer workstation usage guide.
 
 ---
 

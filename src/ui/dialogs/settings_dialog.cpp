@@ -503,7 +503,7 @@ void SettingsDialog::on_reset_defaults() {
     pressure_spin_->setValue(1010.0);
     temp_spin_->setValue(28.0);
     fov_spin_->setValue(2.00);
-    ai_conf_spin_->setValue(0.40);
+    ai_conf_spin_->setValue(0.30);
     auto_align_check_->setChecked(true);
     default_fmt_combo_->setCurrentIndex(0);
     capture_dir_edit_->setText("sessions");
@@ -569,7 +569,7 @@ void SettingsDialog::on_import_settings() {
     if (obj.contains("elevation_m")) elev_spin_->setValue(obj["elevation_m"].toDouble(50.0));
     if (obj.contains("camera_exposure")) default_exp_spin_->setValue(obj["camera_exposure"].toDouble(33333.0) / 1000.0);
     if (obj.contains("camera_gain")) default_gain_spin_->setValue(obj["camera_gain"].toDouble(100.0));
-    if (obj.contains("ai_confidence")) ai_conf_spin_->setValue(obj["ai_confidence"].toDouble(0.40));
+    if (obj.contains("ai_confidence")) ai_conf_spin_->setValue(obj["ai_confidence"].toDouble(0.30));
     if (obj.contains("phase_correlation_align")) auto_align_check_->setChecked(obj["phase_correlation_align"].toBool(true));
     if (obj.contains("capture_dir")) capture_dir_edit_->setText(obj["capture_dir"].toString("Captures"));
     if (obj.contains("log_dir")) log_dir_edit_->setText(obj["log_dir"].toString("logs"));

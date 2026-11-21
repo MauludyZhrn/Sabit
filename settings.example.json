@@ -28,8 +28,10 @@
     "ai_max_fps": 3
   },
   "ai": {
-    "model": "models/hilal_v1.onnx",
-    "confidence": 0.5,
-    "provider": "cpu"
+    "active_model": "yolov8s",
+    "model": "models/hilal/yolov8s/hilal_yolov8s_640.onnx",
+    "confidence": 0.30,
+    "nms_iou": 0.45,
+    "provider": "CPUExecutionProvider"
   }
 }

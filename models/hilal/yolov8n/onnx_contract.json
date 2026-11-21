@@ -1,0 +1,54 @@
+{
+  "generated_at_utc": "2026-11-21T14:38:05.538246+00:00",
+  "export_command": "scripts/export_onnx.py --weights runs/hilal_v2/yolov8n_640_comparison/weights/best.pt --imgsz 640 --opset 17 --out-dir artifacts/model_comparison/yolov8n",
+  "ultralytics_version": "8.4.216",
+  "onnx_version": "1.23.2",
+  "onnxruntime_version": "1.23.2",
+  "onnxruntime_available_providers": [
+    "AzureExecutionProvider",
+    "CPUExecutionProvider"
+  ],
+  "opset": 17,
+  "imgsz": 640,
+  "static_shape": true,
+  "embedded_nms": false,
+  "nms_responsibility": "cpp_postprocess_nms",
+  "layout": "NCHW",
+  "color_order": "RGB",
+  "pixel_normalization": "float32 / 255.0 (range 0.0..1.0)",
+  "letterbox_pad_rgb": [
+    114,
+    114,
+    114
+  ],
+  "class_mapping": {
+    "0": "hilal"
+  },
+  "inputs": [
+    {
+      "name": "images",
+      "shape": [
+        1,
+        3,
+        640,
+        640
+      ],
+      "type": "tensor(float)"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output0",
+      "shape": [
+        1,
+        5,
+        8400
+      ],
+      "type": "tensor(float)"
+    }
+  ],
+  "best_pt_sha256": "9cd3722eda3bebd65e90780ac336d92e7fda6658b10178ba3a8692a58cd6abae",
+  "best_onnx_sha256": "0f3281bfbf96dad2860ee1747e833349f9db878aa48cede60d09cd75fc93fc79",
+  "best_pt_bytes": 6510186,
+  "best_onnx_bytes": 12773193
+}

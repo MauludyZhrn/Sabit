@@ -1,0 +1,10 @@
+{
+  "model_name": "hilal_yolov8s_640",
+  "task": "single_class_object_detection",
+  "class_mapping": {
+    "0": "hilal"
+  },
+  "ultralytics_version": "8.4.216",
+  "onnxruntime_tested_version": "1.23.2",
+  "disclaimer": "Produces visual detection candidates only; does not confirm astronomical or religious/legal hilal visibility."
+}

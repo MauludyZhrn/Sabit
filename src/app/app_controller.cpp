@@ -574,10 +574,27 @@ core::Result<void> AppController::init_ai(const std::string& model_path, const s
     detect::OnnxDetectorConfig cfg;
     cfg.model_path = model_path;
     cfg.manifest_path = manifest_path;
-    cfg.conf_threshold = 0.25f;
+    cfg.profiles_path = "models/hilal/model_profiles.json";
+    cfg.conf_threshold = 0.30f;
     cfg.nms_threshold = 0.45f;
     cfg.num_threads = 2;
     cfg.max_fps = 3.0; // 3 FPS rate-limiter
+
+    if (model_path.find("yolov8n") != std::string::npos) {
+        if (auto p = detect::OnnxDetector::find_profile("yolov8n")) {
+            cfg.model_id = p->id;
+            cfg.conf_threshold = p->confidence_threshold;
+            cfg.nms_threshold = p->nms_iou;
+        }
+    } else if (model_path.find("yolov8s") != std::string::npos) {
+        if (auto p = detect::OnnxDetector::find_profile("yolov8s")) {
+            cfg.model_id = p->id;
+            cfg.conf_threshold = p->confidence_threshold;
+            cfg.nms_threshold = p->nms_iou;
+        }
+    } else {
+        cfg.model_id = "custom";
+    }
 
     auto res = detector_.init(cfg);
     if (res.is_ok()) {
@@ -587,6 +604,22 @@ core::Result<void> AppController::init_ai(const std::string& model_path, const s
         detector_.start_worker();
     }
     return res;
+}
+
+core::Result<detect::ModelProfile> AppController::set_active_ai_model(const std::string& model_id) {
+    auto res = detector_.setActiveModel(model_id);
+    if (res.is_ok() && session_.is_active()) {
+        const auto& prof = res.value();
+        session_.log_event(
+            "AI Model switched to " + prof.display_name +
+            " (Conf=" + std::to_string(prof.confidence_threshold) +
+            ", NMS=" + std::to_string(prof.nms_iou) + ")");
+    }
+    return res;
+}
+
+detect::ModelProfile AppController::active_ai_profile() const {
+    return detector_.active_profile();
 }
 
 void AppController::handle_ai_detection(const core::Frame& f, const detect::DetectionResult& r) {
@@ -647,11 +680,19 @@ bool AppController::is_ai_enabled() const {
 }
 
 void AppController::set_ai_conf_threshold(float conf) {
-    detector_.set_conf_threshold(conf);
+    detector_.setConfidenceThreshold(conf);
+}
+
+float AppController::ai_conf_threshold() const {
+    return detector_.conf_threshold();
 }
 
 void AppController::set_ai_nms_threshold(float nms) {
-    detector_.set_nms_threshold(nms);
+    detector_.setNmsThreshold(nms);
+}
+
+float AppController::ai_nms_threshold() const {
+    return detector_.nms_threshold();
 }
 
 std::vector<detect::Detection> AppController::get_latest_overlay(int64_t max_age_ms) const {

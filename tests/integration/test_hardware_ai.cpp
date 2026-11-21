@@ -403,6 +403,228 @@ void test_detection_logging_csv() {
     std::cout << "  PASS: DetectionLogger CSV output verified." << std::endl;
 }
 
+namespace {
+
+struct ExpectedOnnxRef {
+    bool valid{false};
+    float conf{0.0f};
+    float x0{0.0f};
+    float y0{0.0f};
+    float x1{0.0f};
+    float y1{0.0f};
+};
+
+ExpectedOnnxRef parse_expected_output_ref(const std::string& json_path) {
+    ExpectedOnnxRef ref;
+    std::ifstream in(json_path);
+    if (!in.is_open()) return ref;
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    size_t onnx_pos = content.find("\"onnx_detections\"");
+    if (onnx_pos == std::string::npos) return ref;
+
+    size_t conf_pos = content.find("\"conf\"", onnx_pos);
+    if (conf_pos == std::string::npos) return ref;
+    size_t colon_pos = content.find(':', conf_pos);
+    if (colon_pos == std::string::npos) return ref;
+    ref.conf = std::stof(content.substr(colon_pos + 1));
+
+    size_t xyxy_pos = content.find("\"xyxy\"", onnx_pos);
+    if (xyxy_pos == std::string::npos) return ref;
+    size_t br_open = content.find('[', xyxy_pos);
+    size_t br_close = content.find(']', br_open);
+    if (br_open == std::string::npos || br_close == std::string::npos) return ref;
+
+    std::string nums = content.substr(br_open + 1, br_close - br_open - 1);
+    for (char& c : nums) {
+        if (c == ',') c = ' ';
+    }
+    std::istringstream iss(nums);
+    if (iss >> ref.x0 >> ref.y0 >> ref.x1 >> ref.y1) {
+        ref.valid = true;
+    }
+    return ref;
+}
+
+} // namespace
+
+void test_hilal_v2_dual_model_validation() {
+    std::cout << "[Test 7] HILAL-DETECT V2 Dual-Model (YOLOv8s + YOLOv8n) Integration Validation..." << std::endl;
+
+    // 1. Verify model profiles catalog & load both sample references
+    auto profiles = detect::OnnxDetector::load_profiles("models/hilal/model_profiles.json");
+    TEST_CHECK(profiles.size() >= 2, "model_profiles.json must define at least yolov8s and yolov8n");
+
+    auto ref_s = parse_expected_output_ref("models/hilal/yolov8s/samples/expected_output.json");
+    auto ref_n = parse_expected_output_ref("models/hilal/yolov8n/samples/expected_output.json");
+    TEST_CHECK(ref_s.valid, "Failed to parse yolov8s expected_output.json");
+    TEST_CHECK(ref_n.valid, "Failed to parse yolov8n expected_output.json");
+
+    // 2. Load sample_input.jpg via WIC loader
+    auto img_res = detect::OnnxDetector::load_image_file("models/hilal/yolov8s/samples/sample_input.jpg");
+    TEST_CHECK(img_res.is_ok(), "Failed to decode models/hilal/yolov8s/samples/sample_input.jpg");
+    const core::Frame& sample_frame = img_res.value();
+    TEST_CHECK(sample_frame.width == 640 && sample_frame.height == 640, "sample_input.jpg must be 640x640");
+    TEST_CHECK(sample_frame.channels == 3 && sample_frame.bit_depth == 8, "sample_input.jpg must decode to 8-bit RGB");
+
+    // 3. Initialize detector cleanly on Primary model (YOLOv8s)
+    detect::OnnxDetector detector;
+    detect::OnnxDetectorConfig cfg;
+    cfg.model_path = "models/hilal/yolov8s/hilal_yolov8s_640.onnx";
+    cfg.manifest_path = "models/manifest.json";
+    cfg.profiles_path = "models/hilal/model_profiles.json";
+    cfg.model_id = "yolov8s";
+    cfg.conf_threshold = 0.30f;
+    cfg.nms_threshold = 0.45f;
+    cfg.verify_hash = true;
+    cfg.prefer_cuda = false;
+
+    auto init_res = detector.init(cfg);
+    TEST_CHECK(init_res.is_ok(), "Failed to init YOLOv8s OnnxDetector");
+    TEST_CHECK(detector.active_model_id() == "yolov8s", "Active model id must be yolov8s");
+    TEST_CHECK(detector.active_execution_provider() == "CPUExecutionProvider", "CPU EP expected");
+
+    // Verify input/output tensor contract dimensions
+    auto in_shape = detector.input_tensor_shape();
+    auto out_shape = detector.output_tensor_shape();
+    TEST_CHECK(in_shape.size() == 4 && in_shape[0] == 1 && in_shape[1] == 3 && in_shape[2] == 640 && in_shape[3] == 640,
+               "YOLOv8s input tensor must be [1, 3, 640, 640]");
+    TEST_CHECK(out_shape.size() == 3 && out_shape[0] == 1 && out_shape[1] == 5 && out_shape[2] == 8400,
+               "YOLOv8s output tensor must be [1, 5, 8400]");
+
+    // 4. Preprocessing verification (sample_input 640x640 + non-square 1280x720 letterbox pad=114)
+    detect::LetterboxMeta sample_meta;
+    auto pre_sample_res = detector.preprocessImage(sample_frame, sample_meta);
+    TEST_CHECK(pre_sample_res.is_ok(), "preprocessImage(sample_frame) failed");
+    TEST_CHECK(pre_sample_res.value().size() == static_cast<size_t>(1 * 3 * 640 * 640), "Preprocessed tensor element count mismatch");
+    TEST_CHECK(std::abs(sample_meta.scale - 1.0f) < 1e-5f && sample_meta.left == 0 && sample_meta.top == 0,
+               "640x640 sample letterbox must have unit scale and zero padding");
+
+    core::Frame rect_frame = core::Frame::create_allocated(1280, 720, 3, 8);
+    std::fill_n(rect_frame.pixels.get(), rect_frame.pixel_count(), uint16_t(0));
+    detect::LetterboxMeta rect_meta;
+    auto pre_rect_res = detector.preprocessImage(rect_frame, rect_meta);
+    TEST_CHECK(pre_rect_res.is_ok(), "preprocessImage(1280x720) failed");
+    TEST_CHECK(std::abs(rect_meta.scale - 0.5f) < 1e-4f && rect_meta.new_unpad_w == 640 && rect_meta.new_unpad_h == 360,
+               "1280x720 letterbox unpadded dims mismatch");
+    TEST_CHECK(rect_meta.top == 140 && rect_meta.left == 0, "1280x720 letterbox top pad must be 140");
+    // Top border pixel at y=0,x=0 in NCHW channel 0 should be 114/255
+    const float expected_pad_norm = 114.0f / 255.0f;
+    TEST_CHECK(std::abs(pre_rect_res.value()[0] - expected_pad_norm) < 1e-4f, "Letterbox pad pixel must equal 114/255");
+
+    // 5. Coordinate restoration math check for non-square letterboxed canvas
+    std::vector<detect::RawCandidate> synth_kept = {
+        detect::RawCandidate{100.0f, 160.0f, 200.0f, 210.0f, 0.90f, 0}
+    };
+    auto synth_restored = detector.restoreBoundingBoxes(synth_kept, rect_meta, 0);
+    TEST_CHECK(synth_restored.size() == 1, "Synthetic box restore count mismatch");
+    // x=(100-0)/0.5=200, y=(160-140)/0.5=40, w=(200-100)/0.5=200, h=(210-160)/0.5=100
+    TEST_CHECK(std::abs(synth_restored[0].x - 200.0f) < 1e-3f &&
+               std::abs(synth_restored[0].y - 40.0f) < 1e-3f &&
+               std::abs(synth_restored[0].width - 200.0f) < 1e-3f &&
+               std::abs(synth_restored[0].height - 100.0f) < 1e-3f,
+               "Coordinate restoration formula mismatch on 1280x720 letterbox");
+
+    // 6. Unit-level NMS verification (overlapping IoU > 0.45 removed, disjoint kept)
+    std::vector<detect::RawCandidate> nms_in = {
+        {100.0f, 100.0f, 200.0f, 200.0f, 0.85f, 0},
+        {105.0f, 105.0f, 205.0f, 205.0f, 0.70f, 0}, // overlaps first with high IoU
+        {400.0f, 400.0f, 480.0f, 450.0f, 0.65f, 0}  // disjoint
+    };
+    auto nms_kept = detector.applyNMS(nms_in, 0.45f);
+    TEST_CHECK(nms_kept.size() == 2 && std::abs(nms_kept[0].confidence - 0.85f) < 1e-5f,
+               "applyNMS(0.45) must suppress high-IoU duplicate and preserve disjoint box");
+
+    // 7. YOLOv8s CPU full pipeline parity vs expected_output.json
+    double s_infer_ms = 0.0;
+    auto raw_s_res = detector.runInference(pre_sample_res.value(), &s_infer_ms);
+    TEST_CHECK(raw_s_res.is_ok(), "YOLOv8s runInference failed");
+    TEST_CHECK(raw_s_res.value().size() == static_cast<size_t>(5 * 8400), "YOLOv8s output size must be 5*8400");
+
+    auto dec_s = detector.decodeOutput(raw_s_res.value().data(), 8400, 0.30f);
+    auto nms_s = detector.applyNMS(dec_s, 0.45f);
+    auto dets_s = detector.restoreBoundingBoxes(nms_s, sample_meta, 0);
+    TEST_CHECK(dets_s.size() == 1, "YOLOv8s at conf=0.30, nms=0.45 must detect 1 Hilal in sample_input.jpg");
+
+    const auto& ds = dets_s[0];
+    const float sx0 = ds.x, sy0 = ds.y, sx1 = ds.x + ds.width, sy1 = ds.y + ds.height;
+    std::cout << "  [YOLOv8s CPU] EP=" << detector.active_execution_provider()
+              << " Time=" << s_infer_ms << " ms"
+              << " Conf=" << ds.confidence << " (ref=" << ref_s.conf << ", diff=" << std::abs(ds.confidence - ref_s.conf) << ")"
+              << " XYXY=[" << sx0 << ", " << sy0 << ", " << sx1 << ", " << sy1 << "]"
+              << " Ref=[" << ref_s.x0 << ", " << ref_s.y0 << ", " << ref_s.x1 << ", " << ref_s.y1 << "]" << std::endl;
+
+    TEST_CHECK(std::abs(ds.confidence - ref_s.conf) < 0.01f, "YOLOv8s score parity diff too large vs expected_output.json");
+    TEST_CHECK(std::abs(sx0 - ref_s.x0) < 2.0f && std::abs(sy0 - ref_s.y0) < 2.0f &&
+               std::abs(sx1 - ref_s.x1) < 2.0f && std::abs(sy1 - ref_s.y1) < 2.0f,
+               "YOLOv8s bounding box parity diff too large vs expected_output.json");
+
+    // Confidence threshold selectivity check
+    auto high_conf_s = detector.decodeOutput(raw_s_res.value().data(), 8400, 0.75f);
+    TEST_CHECK(high_conf_s.empty(), "YOLOv8s score ~0.585 must be filtered when threshold is raised to 0.75");
+
+    // 8. Runtime model switching -> YOLOv8n (no restart, applies conf=0.75, nms=0.45)
+    auto sw_n_res = detector.setActiveModel("yolov8n");
+    TEST_CHECK(sw_n_res.is_ok(), "Runtime switch to yolov8n failed");
+    TEST_CHECK(detector.active_model_id() == "yolov8n", "Active model id must be yolov8n");
+    TEST_CHECK(std::abs(detector.conf_threshold() - 0.75f) < 1e-4f, "YOLOv8n switch must apply conf=0.75");
+    TEST_CHECK(std::abs(detector.nms_threshold() - 0.45f) < 1e-4f, "YOLOv8n switch must apply nms=0.45");
+
+    auto in_shape_n = detector.input_tensor_shape();
+    auto out_shape_n = detector.output_tensor_shape();
+    TEST_CHECK(in_shape_n.size() == 4 && in_shape_n[2] == 640 && in_shape_n[3] == 640, "YOLOv8n input tensor must be [1,3,640,640]");
+    TEST_CHECK(out_shape_n.size() == 3 && out_shape_n[1] == 5 && out_shape_n[2] == 8400, "YOLOv8n output tensor must be [1,5,8400]");
+
+    double n_infer_ms = 0.0;
+    auto raw_n_res = detector.runInference(pre_sample_res.value(), &n_infer_ms);
+    TEST_CHECK(raw_n_res.is_ok(), "YOLOv8n runInference failed");
+    auto dets_n_res = detector.detect(sample_frame);
+    TEST_CHECK(dets_n_res.is_ok() && dets_n_res.value().detections.size() == 1,
+               "YOLOv8n detect() at conf=0.75, nms=0.45 must detect 1 Hilal in sample_input.jpg");
+
+    const auto& dn = dets_n_res.value().detections[0];
+    const float nx0 = dn.x, ny0 = dn.y, nx1 = dn.x + dn.width, ny1 = dn.y + dn.height;
+    std::cout << "  [YOLOv8n CPU] EP=" << detector.active_execution_provider()
+              << " Time=" << dets_n_res.value().inference_time_ms << " ms"
+              << " Conf=" << dn.confidence << " (ref=" << ref_n.conf << ", diff=" << std::abs(dn.confidence - ref_n.conf) << ")"
+              << " XYXY=[" << nx0 << ", " << ny0 << ", " << nx1 << ", " << ny1 << "]"
+              << " Ref=[" << ref_n.x0 << ", " << ref_n.y0 << ", " << ref_n.x1 << ", " << ref_n.y1 << "]" << std::endl;
+
+    TEST_CHECK(std::abs(dn.confidence - ref_n.conf) < 0.01f, "YOLOv8n score parity diff too large vs expected_output.json");
+    TEST_CHECK(std::abs(nx0 - ref_n.x0) < 2.0f && std::abs(ny0 - ref_n.y0) < 2.0f &&
+               std::abs(nx1 - ref_n.x1) < 2.0f && std::abs(ny1 - ref_n.y1) < 2.0f,
+               "YOLOv8n bounding box parity diff too large vs expected_output.json");
+
+    // 9. Duplicate-load avoidance & switch back to YOLOv8s
+    auto sw_n_dup = detector.setActiveModel("yolov8n");
+    TEST_CHECK(sw_n_dup.is_ok(), "Re-selecting active yolov8n must succeed cleanly");
+    auto sw_s_back = detector.setActiveModel("yolov8s");
+    TEST_CHECK(sw_s_back.is_ok() && detector.active_model_id() == "yolov8s" &&
+               std::abs(detector.conf_threshold() - 0.30f) < 1e-4f,
+               "Switching back from yolov8n to yolov8s must restore conf=0.30");
+    auto dets_s_back = detector.detect(sample_frame);
+    TEST_CHECK(dets_s_back.is_ok() && dets_s_back.value().detections.size() == 1,
+               "Post-switch YOLOv8s detect() must remain consistent");
+
+    detector.releaseModel();
+    TEST_CHECK(!detector.is_initialized(), "releaseModel() must uninitialize detector cleanly");
+
+    // 10. Prefer CUDA check (uses CUDA if runtime deps installed & verified, otherwise safe CPU fallback)
+    detect::OnnxDetector gpu_probe_detector;
+    detect::OnnxDetectorConfig gpu_cfg = cfg;
+    gpu_cfg.prefer_cuda = true;
+    auto gpu_res = gpu_probe_detector.init(gpu_cfg);
+    TEST_CHECK(gpu_res.is_ok(), "Detector init with prefer_cuda=true must gracefully select verified EP or CPU fallback");
+    std::string ep = gpu_probe_detector.active_execution_provider();
+    TEST_CHECK(ep == "CPUExecutionProvider" || ep == "CUDAExecutionProvider", "Unexpected EP string");
+    std::cout << "  [EP Probe] prefer_cuda=true resolved to: " << ep << std::endl;
+    auto ep_det = gpu_probe_detector.detect(sample_frame);
+    TEST_CHECK(ep_det.is_ok() && ep_det.value().detections.size() == 1, "EP probe inference check failed");
+    gpu_probe_detector.close();
+
+    std::cout << "  PASS: HILAL-DETECT V2 Dual-Model (YOLOv8s + YOLOv8n) integration validated." << std::endl;
+}
+
 int main() {
     std::cout << "=== Sabit Batch 3 Integration Tests (Hardware & AI) ===" << std::endl;
 
@@ -413,8 +635,9 @@ int main() {
         test_async_worker_and_overlay_expiration();
         test_tc055_raw_recording_purity();
         test_detection_logging_csv();
+        test_hilal_v2_dual_model_validation();
 
-        std::cout << "\n>>> ALL BATCH 3 INTEGRATION TESTS PASSED (6/6) <<<" << std::endl;
+        std::cout << "\n>>> ALL BATCH 3 INTEGRATION TESTS PASSED (7/7) <<<" << std::endl;
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "EXCEPTION: " << e.what() << std::endl;

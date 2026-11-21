@@ -1,0 +1,237 @@
+{
+  "generated_at_utc": "2026-11-21T15:01:41.093876+00:00",
+  "weights": "D:\\Projects\\HILAL-DETECT-V2-TRAINING\\artifacts\\model_comparison\\yolov8s\\best.pt",
+  "onnx": "D:\\Projects\\HILAL-DETECT-V2-TRAINING\\artifacts\\model_comparison\\yolov8s\\best.onnx",
+  "num_samples": 8,
+  "conf": 0.3,
+  "iou": 0.45,
+  "all_counts_match": true,
+  "max_score_abs_diff": 0.000192,
+  "max_box_coord_diff_px": 0.0249,
+  "samples": [
+    {
+      "image": "bmkg-10-_jpg.rf.BWQiEnC2eENuFWj0YzOo.jpg",
+      "pytorch_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.5850912928581238,
+          "xyxy": [
+            228.1475830078125,
+            411.36322021484375,
+            378.56494140625,
+            446.29315185546875
+          ]
+        }
+      ],
+      "onnx_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.585283100605011,
+          "xyxy": [
+            228.14959716796875,
+            411.3620300292969,
+            378.5567626953125,
+            446.2934875488281
+          ]
+        }
+      ],
+      "count_match": true
+    },
+    {
+      "image": "bmkg-39-_jpg.rf.Mov8KTEpI4pnE0GNvgsK.jpg",
+      "pytorch_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9398486614227295,
+          "xyxy": [
+            167.73272705078125,
+            296.5797119140625,
+            561.9850463867188,
+            616.55908203125
+          ]
+        }
+      ],
+      "onnx_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9398738145828247,
+          "xyxy": [
+            167.72801208496094,
+            296.560302734375,
+            561.9769287109375,
+            616.5548095703125
+          ]
+        }
+      ],
+      "count_match": true
+    },
+    {
+      "image": "bmkg-58-_jpg.rf.vQ265LzLjGd1U0IstGNw.jpg",
+      "pytorch_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9470887780189514,
+          "xyxy": [
+            162.3499298095703,
+            191.1554412841797,
+            480.34735107421875,
+            373.07196044921875
+          ]
+        }
+      ],
+      "onnx_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9470999836921692,
+          "xyxy": [
+            162.35565185546875,
+            191.15869140625,
+            480.3486328125,
+            373.07208251953125
+          ]
+        }
+      ],
+      "count_match": true
+    },
+    {
+      "image": "brin-1-_jpg.rf.oxryUfR5FxmWwcbVcCCw.jpg",
+      "pytorch_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9450200796127319,
+          "xyxy": [
+            371.19189453125,
+            289.80828857421875,
+            499.021484375,
+            428.24957275390625
+          ]
+        }
+      ],
+      "onnx_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9450282454490662,
+          "xyxy": [
+            371.19195556640625,
+            289.80902099609375,
+            499.02020263671875,
+            428.25152587890625
+          ]
+        }
+      ],
+      "count_match": true
+    },
+    {
+      "image": "brin-14-_jpg.rf.QO7wQBR2dcLUqtLTSEqQ.jpg",
+      "pytorch_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9496701955795288,
+          "xyxy": [
+            318.55841064453125,
+            209.9439239501953,
+            438.20477294921875,
+            308.64398193359375
+          ]
+        }
+      ],
+      "onnx_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9496794939041138,
+          "xyxy": [
+            318.5573425292969,
+            209.94668579101562,
+            438.2296447753906,
+            308.6452331542969
+          ]
+        }
+      ],
+      "count_match": true
+    },
+    {
+      "image": "brin-15-_jpg.rf.GYZ8JNHgI15N8GiN4R3F.jpg",
+      "pytorch_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9496455788612366,
+          "xyxy": [
+            318.6688232421875,
+            210.2153778076172,
+            437.909423828125,
+            308.61297607421875
+          ]
+        }
+      ],
+      "onnx_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9496294260025024,
+          "xyxy": [
+            318.66790771484375,
+            210.21141052246094,
+            437.9140625,
+            308.613525390625
+          ]
+        }
+      ],
+      "count_match": true
+    },
+    {
+      "image": "brin-16-_jpg.rf.HTYCS51KqKhXlZQRKLFv.jpg",
+      "pytorch_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9644521474838257,
+          "xyxy": [
+            317.93914794921875,
+            204.7427978515625,
+            441.17181396484375,
+            308.720458984375
+          ]
+        }
+      ],
+      "onnx_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9644515514373779,
+          "xyxy": [
+            317.9390869140625,
+            204.7388458251953,
+            441.17181396484375,
+            308.72039794921875
+          ]
+        }
+      ],
+      "count_match": true
+    },
+    {
+      "image": "brin-17-_jpg.rf.7gtx5l0sULv5CciNyvHh.jpg",
+      "pytorch_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.964491069316864,
+          "xyxy": [
+            317.28173828125,
+            203.63705444335938,
+            441.4444580078125,
+            308.7527770996094
+          ]
+        }
+      ],
+      "onnx_detections": [
+        {
+          "class_id": 0,
+          "conf": 0.9644718170166016,
+          "xyxy": [
+            317.28155517578125,
+            203.63829040527344,
+            441.44476318359375,
+            308.7528076171875
+          ]
+        }
+      ],
+      "count_match": true
+    }
+  ]
+}

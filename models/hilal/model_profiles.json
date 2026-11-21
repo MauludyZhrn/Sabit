@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "default_model": "yolov8s",
+  "models": {
+    "yolov8s": {
+      "id": "yolov8s",
+      "display_name": "YOLOv8s Small",
+      "ui_label": "YOLOv8s (Primary - Recommended)",
+      "architecture": "YOLOv8s",
+      "model_path": "models/hilal/yolov8s/hilal_yolov8s_640.onnx",
+      "sha256": "c83c1f3b1f3626d7de84c5f25a87ce010a992cac1aba577828f523db3fcde0bc",
+      "input_name": "images",
+      "output_name": "output0",
+      "input_size": 640,
+      "pad_value": 114,
+      "confidence_threshold": 0.30,
+      "nms_iou": 0.45,
+      "embedded_nms": false,
+      "sample_image": "models/hilal/yolov8s/samples/sample_input.jpg",
+      "expected_output": "models/hilal/yolov8s/samples/expected_output.json"
+    },
+    "yolov8n": {
+      "id": "yolov8n",
+      "display_name": "YOLOv8n Nano",
+      "ui_label": "YOLOv8n (Lightweight Alternative)",
+      "architecture": "YOLOv8n",
+      "model_path": "models/hilal/yolov8n/best.onnx",
+      "sha256": "0f3281bfbf96dad2860ee1747e833349f9db878aa48cede60d09cd75fc93fc79",
+      "input_name": "images",
+      "output_name": "output0",
+      "input_size": 640,
+      "pad_value": 114,
+      "confidence_threshold": 0.75,
+      "nms_iou": 0.45,
+      "embedded_nms": false,
+      "sample_image": "models/hilal/yolov8n/samples/sample_input.jpg",
+      "expected_output": "models/hilal/yolov8n/samples/expected_output.json"
+    }
+  }
+}

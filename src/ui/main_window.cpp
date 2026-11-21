@@ -104,25 +104,34 @@ MainWindow::MainWindow(app::AppController& controller, QWidget* parent)
         status_bar_->update_ephemeris_badge(site.latitude, site.longitude, phen.moon.altitude_deg);
     }
 
-    // Auto-init AI model with absolute path resolution
+    // Auto-init AI model with absolute path resolution (default: YOLOv8s Primary)
     QString app_dir = QCoreApplication::applicationDirPath();
-    std::string model_p = (app_dir + "/models/hilal_v1.onnx").toStdString();
+    std::string model_p = (app_dir + "/models/hilal/yolov8s/hilal_yolov8s_640.onnx").toStdString();
     std::string manifest_p = (app_dir + "/models/manifest.json").toStdString();
     if (!std::filesystem::exists(model_p)) {
-        model_p = "models/hilal_v1.onnx";
+        model_p = "models/hilal/yolov8s/hilal_yolov8s_640.onnx";
         manifest_p = "models/manifest.json";
     }
-    controller_.init_ai(model_p, manifest_p);
+    auto ai_init_res = controller_.init_ai(model_p, manifest_p);
+    if (!ai_init_res.is_ok()) {
+        // Fallback to legacy model path if v2 deployment directory is absent
+        std::string legacy_p = (app_dir + "/models/hilal_v1.onnx").toStdString();
+        if (!std::filesystem::exists(legacy_p)) legacy_p = "models/hilal_v1.onnx";
+        controller_.init_ai(legacy_p, manifest_p);
+    }
     load_persisted_settings();
 
+    auto active_prof = controller_.active_ai_profile();
     auto boot_site = controller_.observer_site();
     SABIT_LOG_INFO("[System] Sabit Initialized: Version=v" + std::string(SABIT_CURRENT_VERSION) +
                    " Arch=x64 Engine=NativeQt6");
     SABIT_LOG_INFO("[Ephemeris] Site=" + boot_site.name +
                    " Lat=" + std::to_string(boot_site.latitude) +
                    " Lon=" + std::to_string(boot_site.longitude));
-    SABIT_LOG_INFO("[AI] Telemetry Ready: Model=hilal_v1.onnx Threshold=" +
-                   std::to_string(ai_conf_spin_ ? ai_conf_spin_->value() : 0.40));
+    SABIT_LOG_INFO("[AI] Telemetry Ready: ActiveModel=" + active_prof.id +
+                   " Path=" + active_prof.model_path +
+                   " Conf=" + std::to_string(controller_.ai_conf_threshold()) +
+                   " NMS=" + std::to_string(controller_.ai_nms_threshold()));
 
     if (QGuiApplication::platformName() != "offscreen") {
         QTimer::singleShot(3000, this, [this]() {
@@ -678,6 +687,23 @@ void MainWindow::create_toolbars() {
     // ==========================================
     // GROUP 4: AI Hilal Detection Subsystem
     // ==========================================
+    ai_model_combo_ = new QComboBox(tb_container);
+    ai_model_combo_->setObjectName("AiModelCombo");
+    ai_model_combo_->addItem("YOLOv8s (Primary - Recommended)", "yolov8s");
+    ai_model_combo_->addItem("YOLOv8n (Lightweight Alternative)", "yolov8n");
+    ai_model_combo_->setCurrentIndex(0);
+    ai_model_combo_->setFixedHeight(24);
+    ai_model_combo_->setMinimumWidth(196);
+    ai_model_combo_->setToolTip(is_id
+        ? "Pilih Model Deteksi Hilal: YOLOv8s (Akurat, Conf 0.30) atau YOLOv8n (Ringan, Conf 0.75)"
+        : "Select Hilal Detection Model: YOLOv8s (Primary, Conf 0.30) or YOLOv8n (Lightweight, Conf 0.75)");
+    connect(ai_model_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+        if (ai_model_combo_) {
+            on_ai_model_changed(ai_model_combo_->currentData().toString());
+        }
+    });
+    hbox->addWidget(ai_model_combo_, 0, Qt::AlignVCenter);
+
     btn_ai_toggle_ = new QToolButton(tb_container);
     btn_ai_toggle_->setObjectName("AiToggle");
     btn_ai_toggle_->setIcon(themed_icon("sync.svg", colors.text, 14));
@@ -709,7 +735,7 @@ void MainWindow::create_toolbars() {
     ai_conf_spin_->setRange(0.05, 0.95);
     ai_conf_spin_->setSingleStep(0.05);
     ai_conf_spin_->setDecimals(2);
-    ai_conf_spin_->setValue(0.40);
+    ai_conf_spin_->setValue(0.30);
     ai_conf_spin_->setFixedSize(58, 24);
     ai_conf_spin_->setToolTip(is_id ? "Ambang Batas Kepercayaan AI (0.05 - 0.95)" : "AI Detection Confidence Threshold (0.05 - 0.95)");
     connect(ai_conf_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double val) {
@@ -990,7 +1016,15 @@ void MainWindow::on_reset_to_defaults_clicked() {
     if (act_crosshair_) act_crosshair_->setChecked(false);
     if (btn_grid_) btn_grid_->setChecked(false);
     if (act_grid_) act_grid_->setChecked(false);
-    if (ai_conf_spin_) ai_conf_spin_->setValue(0.40);
+    if (ai_model_combo_) ai_model_combo_->setCurrentIndex(0);
+    controller_.set_active_ai_model("yolov8s");
+    if (ai_conf_spin_) {
+        ai_conf_spin_->blockSignals(true);
+        ai_conf_spin_->setValue(0.30);
+        ai_conf_spin_->blockSignals(false);
+    }
+    controller_.set_ai_conf_threshold(0.30f);
+    controller_.set_ai_nms_threshold(0.45f);
     if (video_widget_) {
         video_widget_->set_show_crosshair(false);
         video_widget_->set_show_grid(false);
@@ -1912,13 +1946,27 @@ void MainWindow::load_persisted_settings() {
         }
     }
 
-    // 3. AI confidence
+    // 3. AI model & thresholds
     if (root.contains("ai") && root["ai"].isObject()) {
         QJsonObject ai_obj = root["ai"].toObject();
-        if (ai_obj.contains("confidence") && ai_conf_spin_) {
-            double c = ai_obj["confidence"].toDouble(0.40);
+        const bool has_v2_model = ai_obj.contains("active_model");
+        const QString legacy_model = ai_obj.value("model").toString();
+        const bool is_legacy_v1 = (!has_v2_model && legacy_model.contains("hilal_v1"));
+
+        if (has_v2_model) {
+            QString req_id = ai_obj["active_model"].toString("yolov8s").trimmed();
+            if (!req_id.isEmpty() && req_id.toStdString() != controller_.active_ai_profile().id) {
+                on_ai_model_changed(req_id);
+            }
+        }
+        if (!is_legacy_v1 && ai_obj.contains("confidence") && ai_conf_spin_) {
+            double c = ai_obj["confidence"].toDouble(static_cast<double>(controller_.ai_conf_threshold()));
             ai_conf_spin_->setValue(c);
             controller_.set_ai_conf_threshold(static_cast<float>(c));
+        }
+        if (!is_legacy_v1 && ai_obj.contains("nms_iou")) {
+            controller_.set_ai_nms_threshold(static_cast<float>(
+                ai_obj["nms_iou"].toDouble(static_cast<double>(controller_.ai_nms_threshold()))));
         }
     }
 
@@ -1984,10 +2032,13 @@ void MainWindow::save_persisted_settings() {
     if (processing_panel_) root["phase_correlation_align"] = processing_panel_->is_align_enabled();
 
     // AI
+    auto ai_prof = controller_.active_ai_profile();
     QJsonObject ai;
-    ai["model"] = "models/hilal_v1.onnx";
-    ai["confidence"] = ai_conf_spin_ ? ai_conf_spin_->value() : 0.40;
-    ai["provider"] = "cpu";
+    ai["active_model"] = QString::fromStdString(ai_prof.id);
+    ai["model"] = QString::fromStdString(ai_prof.model_path);
+    ai["confidence"] = ai_conf_spin_ ? ai_conf_spin_->value() : static_cast<double>(ai_prof.confidence_threshold);
+    ai["nms_iou"] = static_cast<double>(controller_.ai_nms_threshold());
+    ai["provider"] = QString::fromStdString(controller_.ai_execution_provider());
     root["ai"] = ai;
 
     QString app_dir = QCoreApplication::applicationDirPath();
@@ -2006,8 +2057,69 @@ void MainWindow::save_persisted_settings() {
     }
 }
 
+void MainWindow::on_ai_model_changed(const QString& model_id) {
+    const QString id_trimmed = model_id.trimmed();
+    if (id_trimmed.isEmpty()) return;
+
+    const bool was_ai_on = (current_ai_state_ == AiButtonState::On || controller_.is_ai_enabled());
+    if (was_ai_on) {
+        update_ai_toolbar_button(AiButtonState::Loading);
+    }
+
+    auto res = controller_.set_active_ai_model(id_trimmed.toStdString());
+    if (res.is_ok()) {
+        const auto& prof = res.value();
+        if (ai_model_combo_) {
+            int idx = ai_model_combo_->findData(QString::fromStdString(prof.id));
+            if (idx >= 0 && ai_model_combo_->currentIndex() != idx) {
+                ai_model_combo_->blockSignals(true);
+                ai_model_combo_->setCurrentIndex(idx);
+                ai_model_combo_->blockSignals(false);
+            }
+            ai_model_combo_->setToolTip(QString("Active Model: %1 (%2) | Conf: %3 | NMS: %4")
+                .arg(QString::fromStdString(prof.display_name))
+                .arg(QString::fromStdString(prof.architecture))
+                .arg(prof.confidence_threshold, 0, 'f', 2)
+                .arg(prof.nms_iou, 0, 'f', 2));
+        }
+        if (ai_conf_spin_) {
+            ai_conf_spin_->blockSignals(true);
+            ai_conf_spin_->setValue(static_cast<double>(prof.confidence_threshold));
+            ai_conf_spin_->blockSignals(false);
+        }
+        update_ai_toolbar_button(controller_.is_ai_enabled() ? AiButtonState::On : AiButtonState::Off);
+
+        SABIT_LOG_INFO("[AI] Active model switched: id=" + prof.id +
+                       " name=" + prof.display_name +
+                       " conf=" + std::to_string(prof.confidence_threshold) +
+                       " nms=" + std::to_string(prof.nms_iou));
+
+        if (video_widget_) {
+            bool is_id = (Translator::instance().language() == Language::Indonesian);
+            QString msg = is_id
+                ? QString("Model AI aktif: %1 (Conf %2, NMS %3)")
+                      .arg(QString::fromStdString(prof.display_name))
+                      .arg(prof.confidence_threshold, 0, 'f', 2)
+                      .arg(prof.nms_iou, 0, 'f', 2)
+                : QString("Active AI Model: %1 (Conf %2, NMS %3)")
+                      .arg(QString::fromStdString(prof.display_name))
+                      .arg(prof.confidence_threshold, 0, 'f', 2)
+                      .arg(prof.nms_iou, 0, 'f', 2);
+            video_widget_->show_toast(msg);
+        }
+    } else {
+        update_ai_toolbar_button(was_ai_on ? AiButtonState::On : AiButtonState::Off);
+        SABIT_LOG_ERROR("[AI] Failed to switch model to '" + id_trimmed.toStdString() + "': " + res.error().message);
+        if (video_widget_) {
+            video_widget_->show_toast(QString("Failed to load model %1: %2")
+                .arg(id_trimmed)
+                .arg(QString::fromStdString(res.error().message)));
+        }
+    }
+}
+
 void MainWindow::on_open_settings_clicked() {
-    double cur_conf = ai_conf_spin_ ? ai_conf_spin_->value() : 0.40;
+    double cur_conf = ai_conf_spin_ ? ai_conf_spin_->value() : static_cast<double>(controller_.ai_conf_threshold());
     bool align_en = processing_panel_ ? processing_panel_->is_align_enabled() : true;
     QString cur_cap_dir = QString::fromStdString(controller_.captures_dir());
     SettingsDialog dlg(controller_.observer_site(), cur_conf, align_en, cur_cap_dir, this);

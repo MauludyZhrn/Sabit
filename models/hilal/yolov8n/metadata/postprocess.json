@@ -1,0 +1,14 @@
+{
+  "output_name": "output0",
+  "output_shape": [
+    1,
+    5,
+    8400
+  ],
+  "embedded_nms": false,
+  "coordinate_format": "cx_cy_w_h_letterboxed_pixels",
+  "class_count": 1,
+  "recommended_starting_conf_threshold": 0.75,
+  "recommended_starting_iou_threshold": 0.45,
+  "note": "YOLOv8n alternative model uses validated threshold conf=0.75, iou=0.45 from onnx_verification.json."
+}

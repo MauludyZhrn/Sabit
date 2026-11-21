@@ -15,4 +15,11 @@ target_link_libraries(sabit_detect PUBLIC
     sabit_core
 )
 
+if(WIN32)
+    target_link_libraries(sabit_detect PUBLIC
+        windowscodecs
+        ole32
+    )
+endif()
+
 target_compile_features(sabit_detect PUBLIC cxx_std_20)
